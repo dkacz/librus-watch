@@ -114,10 +114,10 @@ feedback:
   examples: 2              # ocenione przykłady dokładane do promptu
   # metrics_textfile: /var/lib/node_exporter/textfile/librus_watch.prom
   share_corpus: true       # wspólny korpus (opt-out, ADR-018): zanonimizowane ocenione przykłady
-  # corpus_endpoint: https://<odbiornik>/v1/corpus   # pusty: nic nie wychodzi
+  # corpus_endpoint: https://tele.pamb.uk/v1/corpus   # odbiornik projektu (domyślnie pusty do przeglądu prawnego)
 
 # Telemetria zbiorcza (ADR-022): domyślnie WŁĄCZONA (opt-out). Raz w tygodniu same liczby,
 # zaokrąglone i z szumem, bez treści i danych dzieci. Podgląd: librus-watch telemetry
 telemetry:
   enabled: true            # false wyłącza wysyłkę
-  # endpoint: https://<odbiornik>/v1/telemetry   # pusty: nic nie wychodzi
+  endpoint: https://tele.pamb.uk/v1/telemetry   # odbiornik projektu; pusty: nic nie wychodzi

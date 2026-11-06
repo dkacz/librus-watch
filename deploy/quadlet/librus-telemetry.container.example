@@ -10,6 +10,8 @@ ContainerName=librus-telemetry
 Image=localhost/librus-watch:<wersja>
 Exec=telemetry-receiver --port 8090 --out /data/telemetry.jsonl
 Network=librus-net
+# tylko loopback hosta: tunel (np. cloudflared w sieci hosta) kieruje na http://127.0.0.1:8090
+PublishPort=127.0.0.1:8090:8090
 UserNS=keep-id:uid=10001,gid=10001
 ReadOnly=true
 DropCapability=ALL

@@ -421,7 +421,7 @@ class TelemetryConfig(Strict):
 
     enabled: bool = True
     """Raz w tygodniu paczka liczb (bez treści i identyfikatorów); `false` wyłącza."""
-    endpoint: str | None = None
+    endpoint: str | None = "https://tele.pamb.uk/v1/telemetry"
     """Adres odbiornika (HTTPS; HTTP tylko dla nazw wewnętrznych). Pusty: nic nie wychodzi."""
 
 

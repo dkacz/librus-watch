@@ -127,7 +127,7 @@ Repozytorium jest publiczne od początku, ale ogłoszenie i pierwsze wydanie (E1
 | | README z instalacją | krok po kroku dla rodzica: Telegram, sekrety, Podman lub Docker, pierwsze uruchomienie, wyłączenie korpusu |
 | | Licencja zależności | `librus-apix` ma niespójną licencję (plik `LICENSE` i GitHub: GPL-3.0, metadane paczki: MIT); zostajemy przy GPL-3.0-or-later (ADR-009), zgłosić niespójność autorom biblioteki |
 | | Nagłówki SPDX | `SPDX-License-Identifier: GPL-3.0-or-later` w plikach źródłowych |
-| | Przegląd prawny korpusu i telemetrii (oba opt-out) | przed włączeniem E11 (ADR-018); do tego czasu README opisuje korpus jako planowany |
+| | Przegląd prawny korpusu i telemetrii (oba opt-out; odbiornik publiczny: `tele.pamb.uk`, korpus domyślnie bez adresu do przeglądu) | przed włączeniem E11 (ADR-018); do tego czasu README opisuje korpus jako planowany |
 | | Obrazek w README | mem ze znakiem wodnym serwisu zostaje (decyzja właściciela); prawa autorskie do sprawdzenia przy wydaniu |
 
 ## Ryzyka
