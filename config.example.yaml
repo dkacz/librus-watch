@@ -124,6 +124,8 @@ telemetry:
 
 # Migawka liczb dla panelu admina: po każdym cyklu `now.json` i `daily.jsonl` (same liczby,
 # bez treści i imion; dziecko to id). Domyślnie w katalogu danych, w podkatalogu stats.
+# Panel (librus-watch admin-panel) dostaje tylko ten katalog: w kontenerze ustaw dir: /stats
+# i zamontuj go osobno, żeby panel nie widział bazy.
 stats:
   enabled: true
   # dir: /data/stats
