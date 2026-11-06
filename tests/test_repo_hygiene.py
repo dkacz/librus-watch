@@ -1,0 +1,53 @@
+import importlib.util
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+_spec = importlib.util.spec_from_file_location("check", ROOT / "scripts/check_private_paths.py")
+assert _spec and _spec.loader
+check = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check)
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def test_repo_tracks_no_private_files() -> None:
+    assert check.tracked_private_files(ROOT) == []
+
+
+def test_force_added_private_file_is_detected(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q")
+    (tmp_path / ".gitignore").write_text("config.yaml\nsecrets/\n")
+    (tmp_path / "config.yaml").write_text("x: 1\n")
+    (tmp_path / "secrets").mkdir()
+    (tmp_path / "secrets" / "pw").write_text("hunter2\n")
+    (tmp_path / "ok.txt").write_text("ok\n")
+    _git(tmp_path, "add", "-f", "config.yaml", "secrets/pw", "ok.txt", ".gitignore")
+    assert check.tracked_private_files(tmp_path) == ["config.yaml", "secrets/pw"]
+
+
+def test_forbidden_terms_are_detected(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "a.md").write_text("Zwykły tekst o Foo Bar.\n")
+    (tmp_path / "b.md").write_text("nic\n")
+    _git(tmp_path, "add", "a.md", "b.md")
+    terms = tmp_path / "terms.txt"
+    terms.write_text("# komentarz\n\nfoo bar\n")
+    assert check.forbidden_term_hits(tmp_path, terms) == ["a.md"]
+    assert check.forbidden_term_hits(tmp_path, tmp_path / "brak.txt") == []
+
+
+def test_example_files_are_not_ignored() -> None:
+    examples = [
+        ".env.example",
+        "config.example.yaml",
+        "secrets.example/README.md",
+        "deploy/compose.example.yaml",
+        "deploy/quadlet/librus-watch.container.example",
+    ]
+    res = subprocess.run(
+        ["git", "check-ignore", "--no-index", *examples], cwd=ROOT, capture_output=True, text=True
+    )
+    assert res.stdout == ""

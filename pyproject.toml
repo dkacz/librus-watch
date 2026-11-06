@@ -1,0 +1,66 @@
+[project]
+name = "librus-watch"
+version = "0.1.0"
+description = "Watches Librus Synergia and alerts parents about deviations from the normal school day (earlier gathering, things to bring, cancellations)."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    "librus-apix==1.6.0",
+    "pydantic>=2.9,<3",
+    "pyyaml>=6.0,<7",
+    "openai>=1.50,<3",
+    "apprise>=1.9,<2",
+]
+
+[project.scripts]
+librus-watch = "librus_watch.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-pyyaml",
+    "types-requests",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/librus_watch"]
+
+[tool.uv]
+# Łańcuch dostaw: nie rozwiązujemy wersji opublikowanych w ostatnich dniach.
+exclude-newer = "2026-10-30T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["llm: test na żywym endpoincie LLM (wymaga LLM_* w env)"]
+addopts = "-m 'not llm'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "D"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S603", "S607", "D"]
+"scripts/**" = ["S603", "S607"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["librus_apix.*", "apprise.*"]
+ignore_missing_imports = true

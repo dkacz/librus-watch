@@ -1,0 +1,43 @@
+# librus-watch przez Docker Compose (albo podman compose).
+# Skopiuj do compose.yaml obok config.yaml i katalogu secrets/, potem:
+#   docker compose up -d --build
+#
+# Sekrety leżą w plikach w secrets/ (jest w .gitignore), patrz secrets.example/.
+
+services:
+  librus-watch:
+    build:
+      context: ..
+      dockerfile: Containerfile
+    image: librus-watch:latest
+    command: ["run"]
+    restart: unless-stopped
+    user: "10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    environment:
+      TZ: Europe/Warsaw
+      LIBRUS_WATCH_CONFIG: /config/config.yaml
+      LIBRUS_ANIA_LOGIN_FILE: /run/secrets/librus_ania_login
+      LIBRUS_ANIA_PASSWORD_FILE: /run/secrets/librus_ania_password
+      APPRISE_CONFIG_FILE: /run/secrets/apprise_config
+    secrets:
+      - librus_ania_login
+      - librus_ania_password
+      - apprise_config
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - librus-watch-data:/data
+
+secrets:
+  librus_ania_login:
+    file: ./secrets/librus_ania_login
+  librus_ania_password:
+    file: ./secrets/librus_ania_password
+  apprise_config:
+    file: ./secrets/apprise_config
+
+volumes:
+  librus-watch-data:

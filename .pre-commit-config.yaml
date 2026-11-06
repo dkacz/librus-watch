@@ -1,0 +1,30 @@
+# Instalacja: `pre-commit install` (raz po sklonowaniu repo).
+# Repozytorium jest publiczne: hooki blokują sekrety, prywatne pliki i duże pliki.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: check-private-paths
+        name: prywatne ścieżki z .gitignore nie trafiają do gita
+        entry: python3 scripts/check_private_paths.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check

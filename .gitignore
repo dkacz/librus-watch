@@ -1,0 +1,41 @@
+# --- Prywatne: konfiguracja, sekrety, dane (nigdy w gicie) ---
+config.yaml
+config.local.yaml
+.env
+.env.*
+!.env.example
+secrets/
+!secrets.example/
+data/
+local/
+deploy/local/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+google-*.json
+service-account*.json
+credentials*.json
+token*.json
+*.pem
+*.key
+apprise.txt
+apprise.yaml
+*.log
+
+# --- Python / narzędzia ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- System ---
+.DS_Store

@@ -1,0 +1,84 @@
+# librus-watch: wzorzec konfiguracji.
+# Skopiuj do config.yaml (ten plik jest w .gitignore) i dostosuj.
+#
+# W tym pliku NIE MA sekretów. Hasła, klucz API i adresy kanałów powiadomień
+# podajesz przez zmienne środowiskowe albo pliki sekretów (patrz .env.example
+# i secrets.example/). Klucz wyglądający na sekret (password, token, api_key,
+# login...) jest tu błędem i program się nie uruchomi.
+#
+# Wszystkie pola poza `children` są opcjonalne; poniżej wartości domyślne.
+
+timezone: Europe/Warsaw
+data_dir: /data            # baza SQLite; w kontenerze to wolumen
+log_level: INFO
+retention_days: 400        # starsze dane są usuwane z bazy
+
+# Dzieci. Dane logowania każdego dziecka idą do sekretów
+# LIBRUS_<ID>_LOGIN i LIBRUS_<ID>_PASSWORD, np. LIBRUS_ANIA_PASSWORD_FILE.
+# Używaj loginu RODZICA w Synergii (np. 1234567), nie ucznia (1234567u).
+# Każde dziecko ma w Synergii osobny login rodzica.
+children:
+  - id: ania               # małe litery, cyfry, podkreślenie
+    name: Ania             # imię w powiadomieniach
+  - id: kuba
+    name: Kuba
+
+fetch:
+  interval_minutes: 60     # nie mniej niż 20, żeby nie obciążać Librusa
+  active_hours: {start: "06:00", end: "21:30"}
+  max_failures_per_day: 4  # potem przerwa do następnego dnia
+  backoff_base_minutes: 20
+  http_timeout_seconds: 30
+  timetable_weeks: 2
+  schedule_months: 2
+  homework_days_ahead: 21
+  max_message_pages: 5
+
+# Model językowy czytający wiadomości od nauczycieli.
+# Dowolne API zgodne z OpenAI: lokalnie llama.cpp, llama-swap, Ollama;
+# zdalnie OpenRouter, OpenAI i inne.
+#
+# PRYWATNOŚĆ: przy zdalnym API treść wiadomości ze szkoły (imiona dzieci,
+# nauczycieli, szczegóły wydarzeń) jest wysyłana do zewnętrznej firmy.
+# Domyślnie wskazujemy serwer lokalny.
+llm:
+  enabled: true
+  base_url: http://localhost:8080/v1   # http tylko w sieci lokalnej, inaczej https
+  model: local-model
+  json_mode: auto          # auto | json_schema | json_object
+  timeout_seconds: 120
+  max_input_chars: 8000
+  min_confidence: 0.5
+  max_attempts_per_message: 3
+  api_key_required: false  # true dla API zdalnych (sekret LLM_API_KEY)
+
+alerts:
+  evening:                 # podsumowanie na jutro
+    enabled: true
+    at: "19:00"
+    mode: only_if_unusual  # albo always (także „jutro bez zmian”)
+  morning:                 # tylko zmiany od wieczora
+    enabled: true
+    at: "06:30"
+    mode: only_if_unusual
+  instant:                 # od razu, gdy coś pilnego na dziś lub jutro
+    enabled: true
+    lookahead_days: 1
+    min_priority: high
+  failure:                 # raport, gdy program przestaje dostawać dane
+    enabled: true
+    after_hours_without_success: 26
+  quiet_hours: {start: "21:30", end: "06:15"}
+
+  # Kanały definiuje sekret APPRISE_CONFIG (linie `tag1,tag2=URL`).
+  # Reguły poniżej wybierają, co trafia do których tagów.
+  routes:
+    - tags: [rodzice]      # wszystko do wspólnej grupy
+    - tags: [mama]         # przykład: tylko pilne sprawy Ani
+      children: [ania]
+      alert_types: [instant, evening]
+      min_priority: high
+
+  # Nadpisanie domyślnych wag rodzajów odstępstw (low | normal | high).
+  priorities:
+    test: high
