@@ -39,3 +39,6 @@ mkdir -p secrets && chmod 700 secrets
 printf '%s' 'haslo-ani' > secrets/librus_ania_password && chmod 600 secrets/librus_ania_password
 export LIBRUS_ANIA_PASSWORD_FILE=$PWD/secrets/librus_ania_password
 ```
+
+- `telegram_bot_token`: token bota od @BotFather (sam token, bez cudzysłowów). Własny bot, nieużywany nigdzie indziej.
+- `telegram_chat_ids`: identyfikatory czatów, jeden w linii (grupa: liczba ujemna). Bot pisze i odpowiada tylko tam.
