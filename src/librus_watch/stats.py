@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time as _time
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
@@ -119,6 +120,7 @@ def now_record(cfg: Config, store: Store, now: datetime) -> dict[str, Any]:
     return {
         "schema_version": STATS_SCHEMA,
         "generated_at": now.isoformat(),
+        "generated_epoch": int(_time.time()),
         "app_version": __version__,
         "prompt_version": PROMPT_VERSION,
         "answer_schema": SCHEMA_VERSION,

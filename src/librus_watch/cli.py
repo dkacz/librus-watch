@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
+from librus_watch.admin import serve as admin_serve
 from librus_watch.alerts import Alert, AlertLine, compose, mark_alert_sent, render
 from librus_watch.config import (
     AlertType,
@@ -87,6 +88,9 @@ def _parser() -> argparse.ArgumentParser:
     rec.add_argument("--per-ip-hour", type=int, default=10, help="paczki na godzinę z jednego IP")
     rec.add_argument("--daily", type=int, default=5000, help="paczki na dobę łącznie")
     rec.add_argument("--max-mb", type=int, default=200, help="łączny rozmiar plików w MB")
+    adm = sub.add_parser("admin-panel", help="panel admina ze statystykami (tylko do odczytu)")
+    adm.add_argument("--port", type=int, default=8092)
+    adm.add_argument("--stats-dir", type=Path, default=Path("/stats"), help="katalog migawki")
     ev = sub.add_parser("eval", help="lokalny zestaw oceny z ocenionych przypadków (bramka)")
     ev.add_argument("--set-baseline", action="store_true", help="zapisz wynik jako odniesienie")
     once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
@@ -401,6 +405,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "telemetry-receiver":  # pragma: no cover - serwer
         setup_logging("INFO")
         serve(args.port, args.out, Limits(args.per_ip_hour, args.daily, args.max_mb * 1024 * 1024))
+        return EXIT_OK
+    if args.command == "admin-panel":  # pragma: no cover - serwer
+        setup_logging("INFO")
+        admin_serve(args.port, args.stats_dir)
         return EXIT_OK
     try:
         cfg = load_config(args.config)
