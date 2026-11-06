@@ -33,7 +33,7 @@ Program już przechowuje teksty, decyzje sita, wyniki modelu i pozycje. Pętla d
 
 ### Jak użytkownik ocenia
 
-- **Przy powiadomieniu w Telegramie:** przyciski „trafne” i „błędne” pod każdą pozycją oraz polecenie „czegoś brakuje” (np. `/brak jutro zbiórka 7:30`). Wymaga bota odbierającego odpowiedzi (Apprise tylko wysyła), więc to osobny moduł, opcjonalny.
+- **Przy powiadomieniu w Telegramie:** przyciski „trafne” i „błędne” pod każdą pozycją oraz polecenie „czegoś brakuje” (np. `/brak jutro zbiórka 7:30`). Obsługuje to własny bot Telegrama od etapu E6 (ADR-019), bo Apprise tylko wysyła; cotygodniowe pytania i raport też przychodzą przez bota.
 - **Przegląd w CLI:** `librus-watch review` pokazuje pozycje z ostatnich dni i kandydatów z audytu (teksty w terminalu użytkownika, lokalnie), a ocenę zapisuje jednym klawiszem.
 - Każda ocena jest odwracalna i ma znacznik czasu.
 

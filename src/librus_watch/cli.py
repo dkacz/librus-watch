@@ -30,6 +30,8 @@ from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 log = logging.getLogger(__name__)
 
 EXIT_OK, EXIT_FETCH, EXIT_CONFIG, EXIT_RUNNING = 0, 1, 2, 3
+MAX_FINDINGS = 25
+"""Ile odstępstw wypisać w raporcie (reszta jako liczba)."""
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -80,6 +82,17 @@ def format_report(r: SyncReport) -> str:
         lines.append(f"  {kind}: {parts}")
     if r.bodies:
         lines.append(f"  pobrane treści wiadomości: {r.bodies}")
+    if r.removed:
+        lines.append(f"  usunięte wpisy: {r.removed}")
+    label = "odstępstwa" if r.dry_run else "nowe odstępstwa"
+    lines.append(
+        f"  {label}: {len(r.findings)}" + (f", wycofane: {r.retracted}" if r.retracted else "")
+    )
+    for f in sorted(r.findings, key=lambda f: (f.day, f.kind.value))[:MAX_FINDINGS]:
+        at = f" {f.at:%H:%M}" if f.at else ""
+        lines.append(f"    {f.day:%Y-%m-%d}{at} {f.kind.value} ({f.origin.value})")
+    if len(r.findings) > MAX_FINDINGS:
+        lines.append(f"    … i jeszcze {len(r.findings) - MAX_FINDINGS}")
     return "\n".join(lines)
 
 

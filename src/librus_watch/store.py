@@ -613,6 +613,17 @@ class Store:
 
     # --- terminarz i prace domowe --------------------------------------------
 
+    def all_entries(self, child: str) -> list[Entry]:
+        """Aktywne (nieusunięte) wpisy dziecka ze wszystkich źródeł.
+
+        Args:
+            child: Id dziecka.
+
+        Returns:
+            Lista wpisów.
+        """
+        return [e for src in ContentType for e in self.entries(child, src)]
+
     def entries(self, child: str, source: ContentType, *, active_only: bool = True) -> list[Entry]:
         """Zapisane wpisy danego źródła.
 

@@ -15,18 +15,21 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
+from librus_watch.baseline import bells_from, day_norm
 from librus_watch.config import Config, ContentType, Credentials
+from librus_watch.deviations import day_findings, dedupe, entry_findings, plan_change_findings
 from librus_watch.errors import AuthError, SchemaError, TransientError
 from librus_watch.librus import messages
 from librus_watch.librus.adapter import (
     LOOKUP_MODULES,
+    Snapshot,
     adapt,
     lookups_from,
     modules_needed,
 )
-from librus_watch.librus.gateway import MODULES, fetch_all
+from librus_watch.librus.gateway import MODULES, GatewayData, fetch_all
 from librus_watch.librus.session import LibrusSession
-from librus_watch.models import TextItem
+from librus_watch.models import Entry, Finding, Origin, TextItem
 from librus_watch.store import Change, Store
 
 log = logging.getLogger(__name__)
@@ -135,6 +138,9 @@ class SyncReport:
         bad_records: Moduł -> liczba pominiętych błędnych rekordów.
         changes: Typ treści -> liczba nowych/zmienionych/bez zmian (bez dry-run).
         bodies: Liczba pobranych treści wiadomości.
+        findings: Odstępstwa: w dry-run wszystkie wykryte, w zwykłym cyklu nowe wersje.
+        retracted: Ile wcześniejszych odstępstw wycofano (już nieaktualne).
+        removed: Ile wpisów zniknęło z kompletnie pobranych modułów (ADR-008).
     """
 
     child: str
@@ -146,6 +152,9 @@ class SyncReport:
     bad_records: dict[str, int] = field(default_factory=dict)
     changes: dict[str, Counter[str]] = field(default_factory=dict)
     bodies: int = 0
+    findings: list[Finding] = field(default_factory=list)
+    retracted: int = 0
+    removed: int = 0
 
     @property
     def ok(self) -> bool:
@@ -177,6 +186,85 @@ def _modules_to_skip(cfg: Config, store: Store, child: str, now: datetime) -> se
         if fetched is not None and now - fetched < RARE_MAX_AGE:
             skip.add(module)
     return skip
+
+
+ENTRY_MODULE: dict[ContentType, str] = {
+    ContentType.agenda: "HomeWorks",
+    ContentType.homework: "HomeWorkAssignments",
+    ContentType.conference: "ParentTeacherConferences",
+    ContentType.trip: "SchoolTrips",
+    ContentType.activity: "OtherActivities",
+    ContentType.grade: "Grades",
+}
+"""Moduł, z którego pochodzi wpis danego typu (do wykrywania usuniętych)."""
+
+
+@dataclass
+class _Detection:
+    """Wynik wykrywania odstępstw jednego cyklu (przed zapisem)."""
+
+    findings: list[Finding]
+    removed: list[Entry]
+    origins: set[Origin]
+    day_to: date
+
+
+def _detect(
+    cfg: Config, store: Store, child: str, data: GatewayData, snap: Snapshot, today: date
+) -> _Detection:
+    """Wylicza odstępstwa z danych cyklu i stanu bazy (bez zapisu).
+
+    Odstępstwa dnia powstają tylko, gdy plan lekcji pobrał się w tym cyklu;
+    odstępstwa ze zmian planu, gdy pobrała się historia zmian. Tylko dla tych
+    źródeł wolno potem wycofać wcześniejsze pozycje. Wpis uznajemy za usunięty
+    wyłącznie wtedy, gdy jego moduł pobrał się w całości, a dla zajęć
+    dodatkowych dodatkowo, gdy jego dzień leży w pobranym zakresie (ADR-008).
+    """
+    days = _timetable_days(today, cfg.fetch.timetable_weeks)
+    day_to = days[-1]
+    ignore = cfg.ignore_content
+    origins: set[Origin] = set()
+    standing = snap.standing if snap.standing is not None else store.standing(child)
+    if ContentType.free_day in ignore:
+        free_days = []
+    elif {"ClassFreeDays", "SchoolFreeDays"} <= data.records.keys():
+        free_days = snap.free_days
+    else:
+        free_days = store.free_days(child)
+    if ContentType.plan_change in ignore:
+        plan_changes, plan_ok = [], True
+    elif "Substitutions" in data.records:
+        plan_changes, plan_ok = snap.plan_changes, True
+    else:
+        plan_changes, plan_ok = store.plan_changes(child), False
+
+    findings: list[Finding] = []
+    if snap.lessons is not None:
+        origins.add(Origin.timetable)
+        bells = store.bell_times(child) | bells_from(
+            ls for lessons in snap.lessons.values() for ls in lessons
+        )
+        for day in sorted(d for d in snap.lessons if d >= today):
+            history = store.profiles(child, day.weekday(), day, 8)
+            norm = day_norm(day, standing, bells, history)
+            findings += day_findings(child, day, snap.lessons[day], norm, free_days, plan_changes)
+    if plan_ok:
+        origins.add(Origin.plan_change)
+        findings += plan_change_findings(plan_changes, today, day_to)
+
+    old_entries = store.all_entries(child)
+    old = {(e.source, e.key): e for e in old_entries}
+    new_keys = {(e.source, e.key) for e in snap.entries}
+    removed = [
+        e
+        for e in old_entries
+        if e.source not in ignore
+        and ENTRY_MODULE.get(e.source) in data.records
+        and (e.source, e.key) not in new_keys
+        and (e.source is not ContentType.activity or days[0] <= e.day <= day_to)
+    ]
+    findings += entry_findings(old, snap.entries, removed, today)
+    return _Detection(dedupe(findings), removed, origins, day_to)
 
 
 def _timetable_days(today: date, weeks: int) -> list[date]:
@@ -273,8 +361,17 @@ def sync_child(
             report.failed["messages"] = type(e).__name__
             log.warning("wiadomości: %s", e)
 
+    detection = _detect(cfg, store, child, data, snap, today)
+    report.removed = len(detection.removed)
+
     if dry_run:
-        log.info("dziecko %s (dry-run): %d modułów", child, len(data.records))
+        report.findings = detection.findings
+        log.info(
+            "dziecko %s (dry-run): %d modułów, %d odstępstw",
+            child,
+            len(data.records),
+            len(detection.findings),
+        )
         return report
 
     for kind, values in fresh.items():
@@ -285,6 +382,8 @@ def sync_child(
         store.save_lessons(child, snap.lessons, now)
     for entry in snap.entries:
         report.count(f"entry:{entry.source.value}", store.upsert_entry(entry, now))
+    for entry in detection.removed:
+        store.mark_entry_removed(entry, now)
     for text in [*snap.texts, *new_messages]:
         report.count(text.source.value, store.upsert_text(text, now))
     for pc in snap.plan_changes:
@@ -294,12 +393,22 @@ def sync_child(
     if cfg.fetch.message_bodies and ContentType.message not in cfg.ignore_content:
         report.bodies = _fetch_bodies(cfg, session, store, child, today)
 
+    report.findings = [f for f in detection.findings if store.add_finding(f, now)]
+    current_ids = {f.identity for f in detection.findings}
+    for old_finding in store.child_findings(child, detection.origins, today, detection.day_to):
+        if old_finding.identity not in current_ids:
+            store.retract_identity(old_finding.identity, now)
+            report.retracted += 1
+
     new = sum(c[Change.new.value] + c[Change.changed.value] for c in report.changes.values())
     log.info(
-        "dziecko %s: %d modułów, %d nowych lub zmienionych, błędy modułów: %d",
+        "dziecko %s: %d modułów, %d nowych lub zmienionych, odstępstwa: %d nowych, "
+        "%d wycofanych, błędy modułów: %d",
         child,
         len(data.records),
         new,
+        len(report.findings),
+        report.retracted,
         len(report.failed),
     )
     return report

@@ -178,3 +178,11 @@ Oceny i komentarze do ocen wybiera się niezależnie:
 - przegląd prawny (RODO, dane dzieci, regulamin Librusa) przed włączeniem funkcji w wydaniu.
 
 **Skutki.** Korpus rośnie szybciej, a każdy użytkownik szybciej korzysta z cudzych pomyłek. Rośnie ryzyko: anonimizacja wolnego tekstu nie jest doskonała, a domyślne włączenie przy danych dotyczących dzieci może wymagać innej podstawy prawnej niż zgoda; przegląd prawny może wymusić powrót do opt-in. Do czasu wdrożenia E11 nic nie jest wysyłane.
+
+## ADR-019: Własny bot Telegrama z przyciskami od pierwszych powiadomień
+
+**Kontekst.** Apprise tylko wysyła wiadomości, więc nie odbierze kliknięcia „trafne” ani zgłoszenia „czegoś brakuje”. Ocena przez polecenie w terminalu wymaga od rodzica siadania do komputera i w praktyce byłaby rzadka. Pętla zwrotna (ADR-016) jest tym cenniejsza, im wcześniej zbiera oceny.
+
+**Decyzja.** Telegram obsługuje własny moduł bota (Bot API: `sendMessage` z przyciskami inline, odbiór odpowiedzi przez `getUpdates`), od etapu powiadomień (E6). Każda pozycja w powiadomieniu ma przyciski „Trafne” i „Błędne” (z wyborem powodu), a bot przyjmuje polecenie `/brak <opis>`. Bot odpowiada wyłącznie na czatach z listy dozwolonych identyfikatorów; token bota i identyfikatory czatów są sekretami (ADR-006). Apprise zostaje dla pozostałych kanałów, które dostają te same powiadomienia bez przycisków.
+
+**Skutki.** Oceny są zbierane od pierwszego powiadomienia, a pilot (E9) ma pełną pętlę. Dochodzi kod do utrzymania (odbieranie aktualizacji, ponowienia, limity Telegrama) i jeden token, którego nie wolno używać z dwóch miejsc naraz (konflikt odbioru aktualizacji).
