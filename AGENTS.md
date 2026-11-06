@@ -21,7 +21,7 @@ Każdy nowy lub zmieniony kod ma testy na odpowiednim poziomie, w tym samym comm
 
 ```sh
 uv run pytest -q              # unit + integration + e2e, z pokryciem (próg 90%)
-uv run pytest -m integration  # jeden poziom
+uv run pytest -m integration --no-cov  # jeden poziom (próg pokrycia liczy się tylko dla całości)
 uv run ruff check
 uv run mypy
 pre-commit run --all-files
