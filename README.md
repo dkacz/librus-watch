@@ -72,7 +72,7 @@ Do uzupełnienia, gdy powstanie obraz kontenera. Wzorce już są:
 ## Część techniczna
 
 - Python 3.12, [`uv`](https://docs.astral.sh/uv/), scraper [`librus-apix`](https://github.com/poroknights/librus-apix), Apprise, SQLite.
-- Decyzje projektowe: [`docs/decisions.md`](docs/decisions.md).
+- Decyzje projektowe: [`docs/decisions.md`](docs/decisions.md). Plan realizacji: [`docs/roadmap.md`](docs/roadmap.md).
 - Sekrety tylko przez zmienne środowiskowe lub pliki (`NAZWA_FILE`). Plik konfiguracyjny odrzuca klucze wyglądające na sekrety, a wartości sekretów są wycinane z logów.
 
 ### Rozwój
