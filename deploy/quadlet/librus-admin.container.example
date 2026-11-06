@@ -1,7 +1,8 @@
 # Quadlet: panel admina ze statystykami usługi (ADR-025), ~/.config/containers/systemd/
 # Ten sam obraz co usługa; panel czyta tylko migawkę liczb (now.json, daily.jsonl),
 # nie ma dostępu do bazy ani do sekretów. W config.yaml usługi: stats.dir: /stats,
-# a w librus-watch.container dodaj: Volume=%h/.local/share/librus-watch-stats:/stats:Z
+# a w librus-watch.container dodaj: Volume=%h/.local/share/librus-watch-stats:/stats:z
+# (małe `z`: katalog dzielą dwa kontenery, więc etykieta SELinux musi być współdzielona)
 # Do wystawienia na zewnątrz: tunel z uwierzytelnieniem na port 8092 (panel nie ma własnego logowania).
 
 [Unit]
@@ -19,7 +20,7 @@ Tmpfs=/tmp
 DropCapability=ALL
 NoNewPrivileges=true
 Environment=TZ=Europe/Warsaw
-Volume=%h/.local/share/librus-watch-stats:/stats:ro,Z
+Volume=%h/.local/share/librus-watch-stats:/stats:ro,z
 LogDriver=journald
 
 [Service]
