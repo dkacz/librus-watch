@@ -1,47 +1,37 @@
-# librus-watch jako usługa systemd przez Podman Quadlet (tryb użytkownika).
-# Skopiuj do ~/.config/containers/systemd/librus-watch.container,
-# uzupełnij ścieżki i sekrety, potem:
-#   systemctl --user daemon-reload && systemctl --user start librus-watch
-#
-# Sekrety tworzysz wcześniej, np.:
-#   printf '%s' '...' | podman secret create librus_ania_password -
+# Quadlet (rootless podman): ~/.config/containers/systemd/librus-watch.container
+# Obraz budowany poza serwerem i przenoszony bez kodu źródłowego:
+#   docker buildx build --platform linux/amd64 -f Containerfile -t librus-watch:<wersja> --load .
+#   docker save librus-watch:<wersja> | ssh <serwer> podman load
+#   ssh <serwer> podman tag docker.io/library/librus-watch:<wersja> localhost/librus-watch:<wersja>
+# Potem: systemctl --user daemon-reload && systemctl --user start librus-watch
 
 [Unit]
-Description=librus-watch: powiadomienia o odstępstwach od normalnego dnia szkolnego
+Description=librus-watch: powiadomienia o odstępstwach w Librusie
 Wants=network-online.target
 After=network-online.target
 
 [Container]
-Image=localhost/librus-watch:latest
 ContainerName=librus-watch
+Image=localhost/librus-watch:<wersja>
 Exec=run
-
-Volume=librus-watch-data:/data:Z
-Volume=%h/.config/librus-watch/config.yaml:/config/config.yaml:ro,Z
-
-Environment=TZ=Europe/Warsaw
-Environment=LIBRUS_WATCH_CONFIG=/config/config.yaml
-
-Secret=librus_ania_login
-Secret=librus_ania_password
-Secret=apprise_config
-Environment=LIBRUS_ANIA_LOGIN_FILE=/run/secrets/librus_ania_login
-Environment=LIBRUS_ANIA_PASSWORD_FILE=/run/secrets/librus_ania_password
-Environment=APPRISE_CONFIG_FILE=/run/secrets/apprise_config
-# Tylko dla zdalnego API modelu:
-# Secret=llm_api_key
-# Environment=LLM_API_KEY_FILE=/run/secrets/llm_api_key
-
-# Bezpieczeństwo
-User=10001
+# sieć z serwerem modelu (np. llama-swap); adres w config.yaml: http://llama-swap:8080/v1
+Network=llm-net
+UserNS=keep-id:uid=10001,gid=10001
 ReadOnly=true
-NoNewPrivileges=true
-DropCapability=ALL
 Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+Environment=TZ=Europe/Warsaw
+EnvironmentFile=%h/.config/librus-watch/env
+Volume=%h/.config/librus-watch/config.yaml:/config/config.yaml:ro,Z
+Volume=%h/.config/librus-watch/secrets:/run/secrets:ro,Z
+Volume=%h/.local/share/librus-watch:/data:Z
+LogDriver=journald
 
 [Service]
 Restart=on-failure
 RestartSec=60
+TimeoutStopSec=40
 
 [Install]
 WantedBy=default.target

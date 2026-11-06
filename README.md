@@ -12,7 +12,7 @@ Nie dostajesz kopii dziennika. Dostajesz krótką wiadomość wtedy, gdy trzeba 
 
 ## Na jakim etapie jest projekt
 
-_Stan na 2026-11-06 (po etapie E7a). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
+_Stan na 2026-11-06 (po etapie E8). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
 
 | Co | Stan |
 |---|---|
@@ -24,10 +24,10 @@ _Stan na 2026-11-06 (po etapie E7a). Pełny plan z kryteriami odbioru: [docs/roa
 | Powiadomienia: wieczorem o jutrze, rano o zmianach, od razu o pilnych, bez powtórek, z „ZMIANA: było… jest…”; Telegram z przyciskami „Trafne” / „Błędne” i poleceniem `/brak`, inne kanały przez Apprise | gotowe (wysyłane ręcznie poleceniem `brief`) |
 | Działanie w tle: pobieranie co godzinę w aktywnych godzinach, podsumowanie wieczorne i poranne o stałych porach, pilne od razu, potwierdzanie kliknięć w Telegramie w kilka sekund, raport, gdy coś przestaje działać | gotowe (`librus-watch run`) |
 | Uczenie się na ocenach: przyciski w Telegramie, przegląd w terminalu (`librus-watch review`), codzienne sprawdzanie w tle tekstów odrzuconych przez filtr, cotygodniowe pytania i raport, zmiany modelu i promptu sprawdzane na Twoich ocenionych przypadkach (`librus-watch eval`) | gotowe |
-| Gotowy kontener i instrukcja instalacji na serwerze domowym | planowane |
+| Kontener na serwer domowy (Podman, Quadlet): bez kodu źródłowego w obrazie, bez uprawnień, system plików tylko do odczytu, stan zachowany po restarcie | gotowe (instrukcja krok po kroku dla rodzica: przy wydaniu) |
 | Tydzień próbny i pierwsze wydanie | planowane |
 
-Dziś można uruchomić program jako usługę na własnym komputerze: `librus-watch run` pobiera dane, wysyła powiadomienia o stałych porach i odbiera oceny z Telegrama, aż do zatrzymania (Ctrl+C). Do sprawdzenia bez wysyłki służy `librus-watch run-once --dry-run`. Program pilnuje kont dzieci: najwyżej 12 logowań na dobę, a po odrzuconym logowaniu (np. złe hasło) nie próbuje ponownie do następnego dnia. Gotowego kontenera i instrukcji instalacji jeszcze nie ma.
+Dziś można uruchomić program jako usługę na własnym komputerze: `librus-watch run` pobiera dane, wysyła powiadomienia o stałych porach i odbiera oceny z Telegrama, aż do zatrzymania (Ctrl+C). Do sprawdzenia bez wysyłki służy `librus-watch run-once --dry-run`. Program pilnuje kont dzieci: najwyżej 12 logowań na dobę, a po odrzuconym logowaniu (np. złe hasło) nie próbuje ponownie do następnego dnia. Kontener i przykład usługi dla Podmana są w `Containerfile` i `deploy/quadlet/`; prosta instrukcja instalacji dla rodzica powstanie przy wydaniu.
 
 ## Przykładowe powiadomienia
 
