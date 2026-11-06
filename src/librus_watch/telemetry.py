@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 PACKET_SCHEMA = 1
 MAX_BYTES = 4096
+MAX_CORPUS_BYTES = 128 * 1024
 ROUND = 5
 NOISE = 2
 SIEVE_REASONS = ("ok", "signal", "empty", "expired", "old", "no_signal", "triage_out")
@@ -164,7 +165,7 @@ def send_weekly(cfg: Config, store: Store, now: datetime, post: Any = None) -> b
 
 
 def serve(port: int, out: Path) -> None:  # pragma: no cover - pętla serwera, testy wołają handler
-    """Odbiornik paczek: POST /v1/telemetry, zapis do JSONL."""
+    """Odbiornik paczek: POST /v1/telemetry i /v1/corpus, zapis do JSONL."""
     ThreadingHTTPServer(("0.0.0.0", port), handler(out)).serve_forever()  # noqa: S104
 
 
@@ -173,16 +174,23 @@ def handler(out: Path) -> type[BaseHTTPRequestHandler]:
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
+            from librus_watch.corpus import CorpusPacket
+
             length = int(self.headers.get("Content-Length") or 0)
-            if self.path != "/v1/telemetry" or not 0 < length <= MAX_BYTES:
+            routes: dict[str, tuple[type[BaseModel], int, Path]] = {
+                "/v1/telemetry": (Packet, MAX_BYTES, out),
+                "/v1/corpus": (CorpusPacket, MAX_CORPUS_BYTES, out.with_name("corpus.jsonl")),
+            }
+            route = routes.get(self.path)
+            if route is None or not 0 < length <= route[1]:
                 self._reply(400)
                 return
             try:
-                packet = Packet.model_validate_json(self.rfile.read(length))
+                packet = route[0].model_validate_json(self.rfile.read(length))
             except ValidationError:
                 self._reply(422)
                 return
-            with out.open("a") as f:
+            with route[2].open("a") as f:
                 f.write(packet.model_dump_json() + "\n")
             self._reply(204)
 

@@ -437,7 +437,9 @@ class FeedbackConfig(Strict):
     metrics_textfile: Path | None = None
     """Plik metryk dla `node_exporter` (textfile collector); bez treści."""
     share_corpus: bool = True
-    """Wspólny korpus (E11, opt-out, ADR-018); do czasu E11 nic nie jest wysyłane."""
+    """Wspólny korpus (E11, opt-out, ADR-018): wysyłka zanonimizowanych przykładów."""
+    corpus_endpoint: str | None = None
+    """Adres odbiornika korpusu (HTTPS; HTTP tylko dla nazw wewnętrznych); pusty: nic."""
 
 
 class Config(Strict):

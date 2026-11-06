@@ -113,7 +113,8 @@ feedback:
   weekly_report: true      # raport i pytania o kandydatów w niedzielę o 18:00 (bot)
   examples: 2              # ocenione przykłady dokładane do promptu
   # metrics_textfile: /var/lib/node_exporter/textfile/librus_watch.prom
-  share_corpus: true       # wspólny korpus (E11, opt-out); do E11 nic nie jest wysyłane
+  share_corpus: true       # wspólny korpus (opt-out, ADR-018): zanonimizowane ocenione przykłady
+  # corpus_endpoint: https://<odbiornik>/v1/corpus   # pusty: nic nie wychodzi
 
 # Telemetria zbiorcza (ADR-022): domyślnie WŁĄCZONA (opt-out). Raz w tygodniu same liczby,
 # zaokrąglone i z szumem, bez treści i danych dzieci. Podgląd: librus-watch telemetry

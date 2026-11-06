@@ -1,0 +1,3 @@
+# Quadlet: sieć dla usługi i odbiornika, ~/.config/containers/systemd/librus-net.network
+[Network]
+NetworkName=librus-net

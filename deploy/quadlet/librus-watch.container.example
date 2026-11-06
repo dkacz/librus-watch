@@ -16,6 +16,8 @@ Image=localhost/librus-watch:<wersja>
 Exec=run
 # sieć z serwerem modelu (np. llama-swap); adres w config.yaml: http://llama-swap:8080/v1
 Network=llm-net
+# sieć z odbiornikiem telemetrii i korpusu (librus-telemetry.container)
+Network=librus-net
 UserNS=keep-id:uid=10001,gid=10001
 ReadOnly=true
 Tmpfs=/tmp

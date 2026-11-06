@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from librus_watch.alerts import compose, mark_alert_sent
 from librus_watch.config import AlertType, Config, child_credentials, llm_api_key
+from librus_watch.corpus import send_corpus
 from librus_watch.delivery import deliver, deliver_text
 from librus_watch.errors import AuthError, TransientError
 from librus_watch.extract import make_client
@@ -296,6 +297,16 @@ def run_service(
                 "--show. Wyłączenie: telemetry.enabled: false w config.yaml.",
             )
             store.set_meta("telemetry_notice", clock().isoformat())
+        if cfg.feedback.share_corpus and not store.get_meta("corpus_notice"):
+            deliver_text(
+                cfg,
+                "librus-watch: wspólny korpus jest włączony. Raz dziennie program "
+                "wysyła ocenione przykłady po anonimizacji (imiona, telefony, adresy i "
+                "daty zamienione na znaczniki; tekst budzący wątpliwość nie wychodzi). "
+                "Dziennik wysłanych: corpus_sent.jsonl w katalogu danych. Wyłączenie: "
+                "feedback.share_corpus: false w config.yaml.",
+            )
+            store.set_meta("corpus_notice", clock().isoformat())
         try:
             while not stop.is_set():
                 now = clock()
@@ -313,6 +324,7 @@ def run_service(
                 check_failures(cfg, store, now)
                 daily_feedback(cfg, store, now)
                 send_weekly(cfg, store, now)
+                send_corpus(cfg, store, now)
                 stop.wait(tick)
         finally:
             stop.set()

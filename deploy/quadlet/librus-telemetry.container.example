@@ -1,0 +1,25 @@
+# Quadlet: odbiornik telemetrii i korpusu (ADR-018, ADR-022), ~/.config/containers/systemd/
+# Paczki trafiają do %h/.local/share/librus-telemetry/{telemetry,corpus}.jsonl.
+# Do wystawienia na zewnątrz: tunel (np. Cloudflare) na port 8090 i HTTPS.
+
+[Unit]
+Description=librus-watch: odbiornik telemetrii i korpusu
+
+[Container]
+ContainerName=librus-telemetry
+Image=localhost/librus-watch:<wersja>
+Exec=telemetry-receiver --port 8090 --out /data/telemetry.jsonl
+Network=librus-net
+UserNS=keep-id:uid=10001,gid=10001
+ReadOnly=true
+DropCapability=ALL
+NoNewPrivileges=true
+Volume=%h/.local/share/librus-telemetry:/data:Z
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

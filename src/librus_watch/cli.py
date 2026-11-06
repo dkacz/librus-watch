@@ -32,6 +32,7 @@ from librus_watch.config import (
     llm_api_key,
     load_config,
 )
+from librus_watch.corpus import build_examples, send_corpus
 from librus_watch.delivery import deliver
 from librus_watch.errors import AuthError, TransientError
 from librus_watch.extract import make_client
@@ -78,6 +79,8 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("review", help="przegląd kandydatów i ostatnich pozycji w terminalu")
     tel = sub.add_parser("telemetry", help="telemetria zbiorcza: podgląd albo wysyłka paczki")
     tel.add_argument("--send", action="store_true", help="wyślij teraz (poza harmonogramem)")
+    cor = sub.add_parser("corpus", help="wspólny korpus: podgląd albo wysyłka przykładów")
+    cor.add_argument("--send", action="store_true", help="wyślij teraz (poza harmonogramem)")
     rec = sub.add_parser("telemetry-receiver", help="odbiornik paczek telemetrii")
     rec.add_argument("--port", type=int, default=8090)
     rec.add_argument("--out", type=Path, default=Path("/data/telemetry.jsonl"))
@@ -131,19 +134,37 @@ def cmd_run_once(args: argparse.Namespace, cfg: Config) -> int:
 def cmd_telemetry(args: argparse.Namespace, cfg: Config, post: Any = None) -> int:
     """Polecenie `telemetry`: pokazuje paczkę; z `--send` wysyła ją od razu."""
     now = local_now(cfg)
-    with InstanceLock(cfg.data_dir):
-        store = Store(cfg.data_dir)
-        try:
-            print(json.dumps(build_packet(cfg, store, now), ensure_ascii=False, indent=2))
-            if not args.send:
-                return EXIT_OK
-            year, week, _ = now.isocalendar()
-            store.set_meta(f"telemetry_sent:{year}-W{week:02d}", "")
-            ok = send_weekly(cfg, store, now, post)
-        finally:
-            store.close()
+    # bez blokady instancji: działa obok uruchomionej usługi (baza w trybie WAL)
+    store = Store(cfg.data_dir)
+    try:
+        print(json.dumps(build_packet(cfg, store, now), ensure_ascii=False, indent=2))
+        if not args.send:
+            return EXIT_OK
+        year, week, _ = now.isocalendar()
+        store.set_meta(f"telemetry_sent:{year}-W{week:02d}", "")
+        ok = send_weekly(cfg, store, now, post)
+    finally:
+        store.close()
     print("wysłane" if ok else "nie wysłano (wyłączona, brak adresu albo błąd)")
     return EXIT_OK if ok else EXIT_FETCH
+
+
+def cmd_corpus(args: argparse.Namespace, cfg: Config, post: Any = None) -> int:
+    """Polecenie `corpus`: pokazuje przykłady do wysyłki; z `--send` wysyła je od razu."""
+    now = local_now(cfg)
+    store = Store(cfg.data_dir)
+    try:
+        examples, rejected = build_examples(cfg, store)
+        shown = [{k: v for k, v in e.items() if k != "_fp"} for e in examples]
+        print(json.dumps({"examples": shown, "rejected": rejected}, ensure_ascii=False, indent=2))
+        if not args.send:
+            return EXIT_OK
+        store.set_meta(f"corpus_day:{now.date()}", "")
+        sent = send_corpus(cfg, store, now, post)
+    finally:
+        store.close()
+    print(f"wysłane przykłady: {sent}")
+    return EXIT_OK
 
 
 def cmd_review(cfg: Config, ask: Any = input) -> int:
@@ -390,6 +411,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run":
             run_service(cfg)
             return EXIT_OK
+        if args.command == "corpus":
+            return cmd_corpus(args, cfg)
         if args.command == "telemetry":
             return cmd_telemetry(args, cfg)
         if args.command == "review":
