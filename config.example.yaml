@@ -66,6 +66,10 @@ llm:
   cold_start_timeout_seconds: 180  # pierwsze zapytanie w cyklu: model może się ładować
   disable_thinking: true   # modele „myślące” pod schematem JSON dają puste odpowiedzi
   circuit_breaker: 3       # po tylu kolejnych błędach połączenia odczyt czeka do kolejnego cyklu
+  # models: [gemma-4-26b-a4b, gemma-3-27b]  # opcjonalnie: wybierz już załadowany (llama-swap /running)
+  triage_batch: 10         # przesiew wsadowy krótkich tekstów (0 wyłącza)
+  triage_sources: [grade_comment, note, lesson_topic]  # tylko kanały o słabym sygnale (ADR-021)
+  pseudonymize: false      # imiona i nazwiska na znaczniki przed modelem zdalnym
   backfill_days: 14        # starsze teksty bez aktualnego terminu sito odrzuca bez modelu
   daily_requests: 200      # dzienny limit zapytań do modelu
   daily_tokens: 400000     # dzienny limit tokenów (szacowanych)

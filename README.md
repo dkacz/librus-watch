@@ -20,7 +20,7 @@ _Stan na 2026-11-06. Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/ro
 | Ochrona konta przy logowaniu (limit, przerwa po odmowie, zapamiętane urządzenie) | gotowe |
 | Wykrywanie odstępstw bez sztucznej inteligencji: dzień wolny, inny początek lub koniec lekcji, odwołania, zastępstwa, nowe i przesunięte sprawdziany, wycieczki, zebrania | gotowe |
 | Przygotowanie tekstów dla modelu: odrzucanie nieaktualnych i nieistotnych, zapamiętywanie wyników, dzienny limit | gotowe |
-| Czytanie wiadomości, ogłoszeń, zadań i komentarzy przez model językowy (zbiórki, rzeczy do przyniesienia, zgody), z kontrolą, że każda informacja ma dosłowny cytat | gotowe (na zestawie testowym 83% trafień) |
+| Czytanie wiadomości, ogłoszeń, zadań i komentarzy przez model językowy (zbiórki, rzeczy do przyniesienia, zgody), z kontrolą, że każda informacja ma dosłowny cytat; wybrany najlepszy model lokalny | gotowe (na zestawie testowym 83% trafień, zero wpadek w pułapkach) |
 | Powiadomienia w Telegramie i innych kanałach, z przyciskami do oceny | planowane |
 | Działanie jako usługa w kontenerze | planowane |
 | Tydzień próbny i pierwsze wydanie | planowane |

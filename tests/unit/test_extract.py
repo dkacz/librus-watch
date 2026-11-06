@@ -225,3 +225,69 @@ def test_schema_avoids_constructs_llama_cpp_cannot_parse() -> None:
 
     raw = json.dumps(SCHEMA)
     assert "\\\\d" not in raw and '["string", "null"]' not in raw
+
+
+# --- E5c ---------------------------------------------------------------------------
+
+
+def test_triage_skips_unflagged_and_falls_back_safely(store: Store) -> None:
+    from librus_watch.extract import triage
+
+    items = [
+        TextItem("ania", ContentType.grade_comment, f"c{i}", SENT, "A", "Mat", f"Tekst {i} jutro")
+        for i in range(3)
+    ]
+    hits, _ = triage(FakeChat('{"hits": [2, 9]}'), items, CFG, "json_schema", 30)
+    assert hits == {1}
+    hits, _ = triage(FakeChat("bełkot"), items, CFG, "json_schema", 30)
+    assert hits == {0, 1, 2}
+
+
+def test_read_queue_uses_triage_for_non_urgent(store: Store) -> None:
+    comments = [
+        TextItem(
+            "ania",
+            ContentType.grade_comment,
+            f"c{i}",
+            date(2026, 11, 1),
+            "A",
+            "Mat",
+            f"Poprawa w czw. {i}",
+        )
+        for i in range(3)
+    ]
+    plan = queued(store, *comments)
+    chat = FakeChat('{"hits": [1]}', answer())
+    report = read_queue(plan, store, CFG, NOW, chat)
+    assert report.triaged_out == 2 and report.read == 1 and len(chat.calls) == 2
+    assert store.texts_to_extract(3) == []
+
+
+def test_pick_model_prefers_loaded_one() -> None:
+    from librus_watch.extract import pick_model
+
+    cfg = LLMConfig(model="a", models=["b", "c"])
+    assert pick_model(cfg, lambda _u: {"running": [{"model": "c"}]}) == "c"
+    assert pick_model(cfg, lambda _u: {"running": []}) == "a"
+    assert pick_model(cfg, lambda _u: (_ for _ in ()).throw(OSError())) == "a"
+    assert pick_model(LLMConfig(model="a"), lambda _u: {}) == "a"
+
+
+def test_pseudonymize_and_restore() -> None:
+    from librus_watch.extract import pseudonymize, restore
+
+    t = TextItem(
+        "ania",
+        ContentType.message,
+        "m",
+        SENT,
+        "A",
+        "Od Anna Testowa",
+        "Anna Testowa prosi: jutro zbiórka 7:30.",
+    )
+    masked, mapping = pseudonymize(t, ["Anna Testowa", "Jo"])
+    assert "Anna" not in (masked.body or "") + masked.title and mapping == {
+        "[OSOBA_1]": "Anna Testowa"
+    }
+    back = restore([{"what": "zbiórka", "quote": "[OSOBA_1] prosi: jutro"}], mapping)
+    assert back[0]["quote"] == "Anna Testowa prosi: jutro"

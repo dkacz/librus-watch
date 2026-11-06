@@ -266,6 +266,16 @@ class LLMConfig(Strict):
     """Wyłącza tryb myślenia modeli, które go mają (pod schematem JSON dają puste odpowiedzi)."""
     circuit_breaker: Annotated[int, Field(ge=1, le=20)] = 3
     """Po tylu kolejnych błędach połączenia odczyt w tym cyklu jest przerywany."""
+    triage_batch: Annotated[int, Field(ge=0, le=30)] = 10
+    """Ile krótkich tekstów sprawdza jedno zapytanie przesiewu (0 wyłącza przesiew)."""
+    triage_sources: list[str] = Field(
+        default_factory=lambda: ["grade_comment", "note", "lesson_topic"]
+    )
+    """Rodzaje tekstów, które przed odczytem przechodzą przesiew (pilne idą prosto do odczytu)."""
+    models: list[str] = Field(default_factory=list)
+    """Dopuszczone modele; gdy któryś jest już załadowany w przełączniku, zostaje wybrany."""
+    pseudonymize: bool = False
+    """Zamiana imion i nazwisk ze słowników Librusa na znaczniki przed wysłaniem do modelu."""
     backfill_days: Annotated[int, Field(ge=1, le=120)] = 14
     """Teksty starsze niż tyle dni (i bez terminu w przyszłości) sito odrzuca bez modelu."""
     keywords: list[str] = Field(default_factory=lambda: list(DEFAULT_KEYWORDS))

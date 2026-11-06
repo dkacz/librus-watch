@@ -194,3 +194,19 @@ Oceny i komentarze do ocen wybiera się niezależnie:
 **Decyzja.** Program domyślnie pobiera treść nowych wiadomości (`fetch.message_bodies: true`), tylko z ostatnich `message_body_days` dni i raz na wiadomość. Lista i licznik nieprzeczytanych (bez skutków ubocznych) służą do wykrywania nowych. README mówi o tym wprost; kto woli zachować stan „nieprzeczytana”, wyłącza pobieranie treści.
 
 **Skutki.** Wiadomości ze szkoły są czytane bez udziału rodzica, kosztem utraty oznaczenia „nieprzeczytana” w Librusie.
+
+## ADR-021: Wybór modelu i zakres przesiewu na podstawie zestawu oceny
+
+**Kontekst.** Etap E5c porównał trzy lokalne modele na zestawie oceny (35 oczekiwanych pozycji, 7 pułapek: sprawy cykliczne, warunkowe, przeszłe, innych klas, bez terminu, próba sterowania modelem, kusząca do zmyślenia) i sprawdził przesiew wsadowy.
+
+| Model | Trafienia | Fałszywe | Pułapki | Przesiew (słabe kanały) |
+|---|---|---|---|---|
+| Gemma 4 26B-A4B (MoE) | 29/35 (83%) | 5 | 0 | 0 zgubionych |
+| Gemma 3 27B | 27/35 (77%) | 10 | 4 | 1 zgubiony |
+| Qwen 3.6 35B-A3B (bez myślenia) | 20/35 (57%) | 10 | 1 | 1 zgubiony |
+
+Przesiew stosowany do wszystkich rodzajów tekstów gubił na każdym modelu od 1 do 3 przypadków z wiadomości i ogłoszeń.
+
+**Decyzja.** Zalecany model lokalny to Gemma 4 26B-A4B; konfiguracja dalej przyjmuje dowolny model zgodny z API OpenAI (`llm.model`, opcjonalnie lista `llm.models` z wyborem już załadowanego). Przesiew wsadowy działa domyślnie tylko dla kanałów o słabym sygnale (komentarze do ocen, uwagi, tematy lekcji) i nigdy dla tekstów pilnych; wiadomości, ogłoszenia, terminarz i zadania zawsze idą do pełnego odczytu. Pseudonimizacja (imiona i nazwiska ze słowników na znaczniki, przywracane w wyniku) jest dostępna dla modelu zdalnego (`llm.pseudonymize`).
+
+**Skutki.** Przy obecnej skali (kilka tekstów dziennie na dziecko) oszczędność przesiewu jest mała, a jego ryzyko większe niż zysk w ważnych kanałach. Wybór modelu trzeba powtarzać przy nowych modelach i przy rozroście zestawu oceny (pętla zwrotna, ADR-016).

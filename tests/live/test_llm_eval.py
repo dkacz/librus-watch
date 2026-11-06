@@ -14,7 +14,7 @@ import pytest
 from fixtures.eval_texts import CASES
 
 from librus_watch.config import ContentType, LLMConfig
-from librus_watch.extract import OpenAIChat, extract_one, parse_answer
+from librus_watch.extract import OpenAIChat, extract_one, parse_answer, triage
 from librus_watch.models import TextItem
 
 pytestmark = pytest.mark.llm
@@ -63,6 +63,20 @@ def test_evaluation_set(chat: tuple[OpenAIChat, LLMConfig]) -> None:
             f"nadmiar={sorted(got - want)} odrzucone={result.rejected}"
         )
     total = hits + misses
+    cases = [c for c in CASES if c["sieve"] == "pass" and c["source"] in cfg.triage_sources]
+    texts = [
+        TextItem("x", ContentType(c["source"]), c["id"], c["sent"], "", c["title"], c["body"])
+        for c in cases
+    ]
+    lost: list[str] = []
+    kept = 0
+    for start in range(0, len(texts), 10):
+        flagged, _ = triage(client, texts[start : start + 10], cfg, "json_schema", 120)
+        for i, c in enumerate(cases[start : start + 10]):
+            kept += i in flagged
+            if c["expect"] and i not in flagged:
+                lost.append(c["id"])
+    print(f"PRZESIEW: przepuszczone {kept}/{len(texts)}, zgubione {lost}")
     print(
         f"\nRAZEM: trafienia {hits}/{total} ({hits / max(total, 1):.0%}), "
         f"fałszywe {false}, zapytania {requests}, tokeny {tokens}, pułapki {trap_hits}"
