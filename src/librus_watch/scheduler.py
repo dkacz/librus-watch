@@ -293,6 +293,7 @@ def run_service(
     with InstanceLock(cfg.data_dir):
         store = Store(cfg.data_dir)
         store.set_meta("service_started", clock().isoformat())
+        write_records(cfg, store, clock())  # strumień od razu po starcie, bez czekania na cykl
         bot = threading.Thread(target=telegram_loop, args=(cfg, stop), daemon=True)
         hook = threading.Thread(target=serve_webhook, args=(cfg, stop, clock), daemon=True)
         if start_telegram:

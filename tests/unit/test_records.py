@@ -221,3 +221,17 @@ def test_inbox_unlink_failure_is_warning(
     caplog.set_level(logging.WARNING)
     records.process_inbox(cfg, store, NOW)
     assert "nie udało się usunąć pliku" in caplog.text
+
+
+def test_service_start_writes_records(cfg: Config, store: Store) -> None:
+    import threading
+
+    from librus_watch import scheduler
+
+    add_text(store, "a")
+    store.close()
+    stop = threading.Event()
+    stop.set()
+    scheduler.run_service(cfg, stop=stop, clock=lambda: NOW, start_telegram=False)
+    path = cfg.data_dir / "stats" / "records.jsonl"
+    assert json.loads(path.read_text().splitlines()[0])["ref"] == "ania|message|a"
