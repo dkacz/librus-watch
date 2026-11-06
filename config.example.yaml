@@ -34,6 +34,7 @@ ignore_content: [grade]
 fetch:
   interval_minutes: 60     # nie mniej niż 20, żeby nie obciążać Librusa
   active_hours: {start: "06:00", end: "21:30"}
+  max_logins_per_day: 12   # ochrona konta: więcej logowań w dobie = przerwa do jutra
   max_failures_per_day: 4  # potem przerwa do następnego dnia
   backoff_base_minutes: 20
   http_timeout_seconds: 30

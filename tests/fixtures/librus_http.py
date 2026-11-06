@@ -70,6 +70,8 @@ class FakeLibrus:
     message_ids: list[str] = field(default_factory=lambda: ["123", "124"])
     expire_api: bool = False
     broken_list: bool = False
+    captcha: bool = False
+    """Logowanie zwraca stronę HTML zamiast JSON-a (jak przy captchy)."""
     broken_bodies: frozenset[str] = frozenset()
     calls: Counter[str] = field(default_factory=Counter)
     gateway_paths: list[str] = field(default_factory=list)
@@ -116,6 +118,10 @@ class _Adapter(BaseAdapter):
         if host == "api.librus.pl":
             if path.startswith("/OAuth/Authorization") and method == "POST":
                 fake.calls["login"] += 1
+                if "DeviceCookie=" in cookies:
+                    fake.calls["known_device"] += 1
+                if fake.captcha:
+                    return self._response(request, 200, "<html>Przepisz kod z obrazka</html>")
                 form = parse_qs(str(request.body or ""))
                 user, password = form.get("login", [""])[0], form.get("pass", [""])[0]
                 if fake.accounts.get(user) != password:
@@ -129,6 +135,13 @@ class _Adapter(BaseAdapter):
                     )
                 self.session.cookies.set("DZIENNIKSID", f"L01~dz{user}sesja0123456789")
                 self.session.cookies.set("SDZIENNIKSID", f"sdz{user}sesja0123456789")
+                if "DeviceCookie=" not in cookies:
+                    self.session.cookies.set(
+                        "DeviceCookie",
+                        "urzadzenie0123456789abcdef",
+                        domain="api.librus.pl",
+                        path="/OAuth",
+                    )
                 return self._json(request, 200, {"status": "ok", "goTo": "/OAuth/2FA"})
             return self._response(request, 200, "{}", "application/json")
 

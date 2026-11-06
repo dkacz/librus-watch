@@ -22,11 +22,10 @@ from pydantic import ValidationError
 
 from librus_watch.config import ConfigError, child_credentials, load_config
 from librus_watch.errors import AuthError, TransientError
-from librus_watch.librus.session import LibrusSession
 from librus_watch.lock import AlreadyRunning, InstanceLock
 from librus_watch.secret_env import MissingSecretError, setup_logging
 from librus_watch.store import Store
-from librus_watch.sync import SyncReport, sync_child
+from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +45,11 @@ def _parser() -> argparse.ArgumentParser:
     fetch = sub.add_parser("fetch", help="jeden cykl pobrania danych i raport liczb")
     fetch.add_argument("--dry-run", action="store_true", help="bez zapisu w bazie")
     fetch.add_argument("--child", help="tylko to dziecko (id z konfiguracji)")
+    fetch.add_argument(
+        "--force",
+        action="store_true",
+        help="loguj mimo blokady po błędzie logowania i dziennego limitu (ostrożnie)",
+    )
     return parser
 
 
@@ -112,12 +116,17 @@ def cmd_fetch(args: argparse.Namespace) -> int:
                 for child in children:
                     now = datetime.now(ZoneInfo(cfg.timezone)).replace(tzinfo=None)
                     try:
-                        session = LibrusSession.login(
-                            child.id, creds[child.id], cfg.fetch.http_timeout_seconds
+                        session = login_child(
+                            cfg, store, child.id, creds[child.id], now, force=args.force
                         )
                         report = sync_child(
                             cfg, child.id, session, store, now=now, dry_run=args.dry_run
                         )
+                    except LoginBlocked as e:
+                        log.warning("dziecko %s: pominięte, %s", child.id, e)
+                        print(f"{child.id}: pominięte ({e})")
+                        code = EXIT_FETCH
+                        continue
                     except (AuthError, TransientError) as e:
                         log.error("dziecko %s: %s (%s)", child.id, e, type(e).__name__)
                         print(f"{child.id}: błąd ({type(e).__name__})")

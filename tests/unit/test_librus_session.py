@@ -48,7 +48,11 @@ class FakeClient:
         oauth: str | None = OAUTH,
         oauth_error: BaseException | None = None,
         response: FakeResponse | BaseException | None = None,
+        issue_device: str | None = None,
     ) -> None:
+        self._session = requests.Session()
+        self.issue_device = issue_device
+        self.sent_device: str | None = None
         self.login_error = login_error
         self.oauth = oauth
         self.oauth_error = oauth_error
@@ -57,8 +61,13 @@ class FakeClient:
 
     def get_token(self, username: str, password: str) -> FakeToken:
         assert (username, password) == ("1234567", "haslo-rodzica")
+        self.sent_device = self._session.cookies.get("DeviceCookie", domain="api.librus.pl")
         if self.login_error:
             raise self.login_error
+        if self.issue_device:
+            self._session.cookies.set(
+                "DeviceCookie", self.issue_device, domain="api.librus.pl", path="/OAuth"
+            )
         return FakeToken()
 
     def refresh_oauth(self) -> str | None:
@@ -74,8 +83,14 @@ class FakeClient:
         return self.response
 
 
-def login(client: FakeClient) -> LibrusSession:
-    return LibrusSession.login("ania", CREDS, 30, client_factory=lambda _t: client)  # type: ignore[arg-type, return-value]
+def login(client: FakeClient, device: str | None = None) -> LibrusSession:
+    return LibrusSession.login(
+        "ania",
+        CREDS,
+        30,
+        client_factory=lambda _t: client,
+        device_cookie=device,  # type: ignore[arg-type, return-value]
+    )
 
 
 # --- logowanie ---------------------------------------------------------------
@@ -168,3 +183,26 @@ def test_each_client_has_own_cookie_jar_and_timeout() -> None:
     a.cookies.set("DZIENNIKSID", "sesja-ani")
     assert b.cookies.get("DZIENNIKSID") is None
     assert a._session.request.keywords == {"timeout": 12}  # type: ignore[attr-defined]
+
+
+# --- DeviceCookie i odpowiedź inna niż JSON (ADR-015) ---------------------------
+
+
+def test_device_cookie_is_sent_read_and_redacted() -> None:
+    client = FakeClient(issue_device="urzadzenie0123456789abcdef")
+    session = login(client)
+    assert client.sent_device is None
+    assert session.device_cookie == "urzadzenie0123456789abcdef"
+    again = FakeClient()
+    session2 = login(again, device=session.device_cookie)
+    assert again.sent_device == "urzadzenie0123456789abcdef"
+    assert session2.device_cookie == "urzadzenie0123456789abcdef"  # bez nowego zostaje stare
+    assert "urzadzenie0123456789abcdef" not in redact("DeviceCookie=urzadzenie0123456789abcdef")
+
+
+def test_non_json_login_answer_suggests_captcha() -> None:
+    import json
+
+    with pytest.raises(AuthError, match="captcha") as exc:
+        login(FakeClient(login_error=json.JSONDecodeError("Expecting value", "<html>", 0)))
+    assert exc.value.__cause__ is None

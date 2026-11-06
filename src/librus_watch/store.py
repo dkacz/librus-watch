@@ -50,7 +50,7 @@ from librus_watch.models import (
     TextItem,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -162,7 +162,11 @@ CREATE TABLE module_state (
 );
 """
 
-_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2}
+_V2_TO_V3 = """
+ALTER TABLE fetch_state ADD COLUMN logins INTEGER NOT NULL DEFAULT 0;
+"""
+
+_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2, 3: _V2_TO_V3}
 """Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
 
 
@@ -221,6 +225,7 @@ class FetchState:
     Attributes:
         day: Doba, której dotyczy licznik porażek.
         failures: Liczba porażek w tej dobie.
+        logins: Liczba logowań w tej dobie (limit `fetch.max_logins_per_day`).
         next_attempt: Najwcześniejszy moment kolejnej próby.
         blocked_until: Do kiedy próby są wstrzymane (np. po błędzie logowania).
         last_success: Moment ostatniego udanego pobrania.
@@ -229,6 +234,7 @@ class FetchState:
 
     day: date
     failures: int = 0
+    logins: int = 0
     next_attempt: datetime | None = None
     blocked_until: datetime | None = None
     last_success: datetime | None = None
@@ -368,6 +374,7 @@ class Store:
         return FetchState(
             day=today,
             failures=row["failures"] if same_day else 0,
+            logins=row["logins"] if same_day else 0,
             next_attempt=dt(row["next_attempt"]),
             blocked_until=dt(row["blocked_until"]),
             last_success=dt(row["last_success"]),
@@ -386,15 +393,17 @@ class Store:
             return v.isoformat() if v else None
 
         self.db.execute(
-            "INSERT INTO fetch_state(child, day, failures, next_attempt, blocked_until, "
-            "last_success, last_error) VALUES(?,?,?,?,?,?,?) ON CONFLICT(child) DO UPDATE SET "
-            "day=excluded.day, failures=excluded.failures, next_attempt=excluded.next_attempt, "
+            "INSERT INTO fetch_state(child, day, failures, logins, next_attempt, blocked_until, "
+            "last_success, last_error) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(child) DO UPDATE SET "
+            "day=excluded.day, failures=excluded.failures, logins=excluded.logins, "
+            "next_attempt=excluded.next_attempt, "
             "blocked_until=excluded.blocked_until, last_success=excluded.last_success, "
             "last_error=excluded.last_error",
             (
                 child,
                 st.day.isoformat(),
                 st.failures,
+                st.logins,
                 s(st.next_attempt),
                 s(st.blocked_until),
                 s(st.last_success),

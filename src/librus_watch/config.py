@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from librus_watch.secret_env import MissingSecretError, get_secret
 
 _FORBIDDEN_KEY = re.compile(r"pass|secret|token|api_?key|login|credential", re.IGNORECASE)
-_ALLOWED_KEYS = frozenset({"api_key_required"})
+_ALLOWED_KEYS = frozenset({"api_key_required", "max_logins_per_day"})
 log = logging.getLogger(__name__)
 _LOCAL_HTTP = re.compile(
     r"^http://(localhost|127\.0\.0\.1|\[::1\]|[\w-]+|[\w.-]+\.(lan|local|internal|home\.arpa)"
@@ -177,6 +177,8 @@ class FetchConfig(Strict):
     """Odstęp między pobraniami. Minimum 20 minut, żeby nie obciążać Librusa."""
     active_hours: TimeWindow = TimeWindow(start=time(6, 0), end=time(21, 30))
     """W jakich godzinach wolno pobierać dane."""
+    max_logins_per_day: Annotated[int, Field(ge=1, le=48)] = 12
+    """Po tylu logowaniach w ciągu doby program czeka do następnego dnia (ochrona konta)."""
     max_failures_per_day: Annotated[int, Field(ge=1, le=10)] = 4
     """Po tylu nieudanych próbach w ciągu doby program czeka do następnego dnia."""
     backoff_base_minutes: Annotated[int, Field(ge=5, le=240)] = 20

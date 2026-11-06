@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
-from librus_watch.config import Config, ContentType
-from librus_watch.errors import SchemaError, TransientError
+from librus_watch.config import Config, ContentType, Credentials
+from librus_watch.errors import AuthError, SchemaError, TransientError
 from librus_watch.librus import messages
 from librus_watch.librus.adapter import (
     LOOKUP_MODULES,
@@ -44,6 +44,81 @@ RARE_MODULES = frozenset(
 )
 """Moduły, które zmieniają się rzadko i są pobierane raz na dobę."""
 RARE_MAX_AGE = timedelta(hours=24)
+
+
+class LoginBlocked(RuntimeError):
+    """Logowanie tego dziecka jest wstrzymane (blokada po błędzie albo dzienny limit)."""
+
+
+def login_child(
+    cfg: Config,
+    store: Store,
+    child: str,
+    creds: Credentials,
+    now: datetime,
+    *,
+    force: bool = False,
+) -> LibrusSession:
+    """Loguje dziecko z ochroną konta (ADR-007, ADR-015).
+
+    Logowanie jest liczone przed próbą, więc limit działa także przy awariach.
+    Błąd logowania (`AuthError`, w tym możliwa captcha) wstrzymuje próby do
+    początku aktywnych godzin następnego dnia. Stan ochrony i `DeviceCookie`
+    są zapisywane zawsze, także w przebiegu bez zapisu danych.
+
+    Args:
+        cfg: Konfiguracja.
+        store: Baza (stan pobierania, `DeviceCookie`).
+        child: Id dziecka.
+        creds: Login i hasło.
+        now: Bieżący moment.
+        force: Pomija blokadę i limit (świadoma decyzja użytkownika).
+
+    Returns:
+        Zalogowana sesja.
+
+    Raises:
+        LoginBlocked: Gdy logowanie jest wstrzymane albo limit wyczerpany.
+        AuthError: Logowanie odrzucone (blokada zapisana).
+        TransientError: Przejściowy problem (porażka odnotowana).
+    """
+    st = store.fetch_state(child, now.date())
+    if not force:
+        if st.blocked_until is not None and now < st.blocked_until:
+            raise LoginBlocked(
+                f"logowanie wstrzymane do {st.blocked_until:%Y-%m-%d %H:%M} ({st.last_error})"
+            )
+        if st.logins >= cfg.fetch.max_logins_per_day:
+            raise LoginBlocked(f"dzienny limit logowań ({cfg.fetch.max_logins_per_day})")
+    elif st.blocked_until is not None or st.logins >= cfg.fetch.max_logins_per_day:
+        log.warning("dziecko %s: logowanie mimo blokady lub limitu (--force)", child)
+    st = replace(st, logins=st.logins + 1)
+    store.save_fetch_state(child, st)
+    meta_key = f"device_cookie:{child}"
+    device = store.get_meta(meta_key)
+    try:
+        session = LibrusSession.login(
+            child, creds, cfg.fetch.http_timeout_seconds, device_cookie=device
+        )
+    except AuthError:
+        until = datetime.combine(now.date() + timedelta(days=1), cfg.fetch.active_hours.start)
+        store.save_fetch_state(
+            child,
+            replace(st, failures=st.failures + 1, blocked_until=until, last_error="AuthError"),
+        )
+        log.error("dziecko %s: logowanie wstrzymane do %s", child, f"{until:%Y-%m-%d %H:%M}")
+        raise
+    except TransientError:
+        store.save_fetch_state(
+            child, replace(st, failures=st.failures + 1, last_error="TransientError")
+        )
+        raise
+    if session.device_cookie and session.device_cookie != device:
+        store.set_meta(meta_key, session.device_cookie)
+    store.save_fetch_state(
+        child, replace(st, blocked_until=None, last_error=None, last_success=now)
+    )
+    return session
 
 
 @dataclass

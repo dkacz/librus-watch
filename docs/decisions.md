@@ -136,3 +136,16 @@ Oceny i komentarze do ocen wybiera się niezależnie:
 | `grade`, `grade_comment` | pominięte | pominięte | żaden |
 
 **Skutki.** Rodzic decyduje, co jest szumem, bez zmian w kodzie. Wyłączenie typu zmniejsza też liczbę zapytań do Librusa i do modelu. Typy: `message`, `notice`, `agenda`, `homework`, `grade`, `grade_comment`, `note`, `lesson_topic`, `conference`, `trip`, `activity`, `plan_change`, `free_day`.
+
+## ADR-015: Ochrona konta przy logowaniu: znane urządzenie, limit, przerwa po odmowie
+
+**Kontekst.** Przy kilku logowaniach w ciągu dwóch godzin Librus odpowiedział na jednym koncie stroną zamiast wyniku logowania, najpewniej captchą albo blokadą. Każde logowanie programu wyglądało dla Librusa na nowe urządzenie, bo program nie zachowywał ciasteczka `DeviceCookie`, po którym Librus rozpoznaje znane urządzenia. Uruchomienia ręczne (testy, diagnoza) nie przechodziły przez żadne limity.
+
+**Decyzja.** Każde logowanie, także ręczne i w przebiegu bez zapisu danych, przechodzi przez tę samą ochronę:
+- `DeviceCookie` jest zapamiętywane w bazie osobno dla każdego dziecka (uprawnienia 0600, wartość wycinana z logów) i wysyłane przy kolejnych logowaniach.
+- Liczba logowań na dobę jest ograniczona (`fetch.max_logins_per_day`), a logowanie liczy się przed próbą.
+- Odmowa logowania, także odpowiedź inna niż JSON (możliwa captcha), wstrzymuje próby do początku aktywnych godzin następnego dnia; komunikat mówi wprost o możliwej captchy.
+- Świadome obejście blokady i limitu daje tylko `--force`, z ostrzeżeniem w logu.
+- Stan ochrony (licznik, blokada, `DeviceCookie`) jest zapisywany zawsze; przebieg bez zapisu nie zapisuje tylko danych z Librusa.
+
+**Skutki.** Kolejne logowania wyglądają na to samo urządzenie, a błąd po stronie Librusa nie zamienia się w serię prób. Ceną jest możliwość przegapienia dnia, gdy odmowa była jednorazowa; wtedy pomaga `--force` albo raport o awarii.

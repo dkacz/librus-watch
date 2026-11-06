@@ -70,3 +70,21 @@ def test_default_ignores_only_grades(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text("children: [{id: a, name: A}]\n")
     assert load_config(path).ignore_content == {"grade"}
+
+
+def test_no_config_field_looks_like_a_secret() -> None:
+    from pydantic import BaseModel
+
+    from librus_watch.config import _ALLOWED_KEYS, _FORBIDDEN_KEY, Config
+
+    def fields(model: type[BaseModel]) -> set[str]:
+        out: set[str] = set()
+        for name, info in model.model_fields.items():
+            out.add(name)
+            ann = info.annotation
+            if isinstance(ann, type) and issubclass(ann, BaseModel):
+                out |= fields(ann)
+        return out
+
+    clashing = {f for f in fields(Config) if _FORBIDDEN_KEY.search(f)} - _ALLOWED_KEYS
+    assert clashing == set()

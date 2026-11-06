@@ -146,10 +146,13 @@ def test_fetch_state_failures_reset_next_day(store: Store) -> None:
     )
     same = store.fetch_state("ania", date(2026, 11, 6))
     assert (same.failures, same.blocked_until, same.last_error) == (3, blocked, "Auth")
+    store.save_fetch_state("kuba", FetchState(day=date(2026, 11, 6), logins=5))
+    assert store.fetch_state("kuba", date(2026, 11, 6)).logins == 5
+    assert store.fetch_state("kuba", date(2026, 11, 7)).logins == 0
     nxt = store.fetch_state("ania", date(2026, 11, 7))
     assert nxt.failures == 0
     assert nxt.blocked_until == blocked
-    assert store.fetch_state("kuba", date(2026, 11, 6)) == FetchState(day=date(2026, 11, 6))
+    assert store.fetch_state("ola", date(2026, 11, 6)) == FetchState(day=date(2026, 11, 6))
 
 
 # --- plan lekcji i profil dnia -----------------------------------------------
@@ -346,7 +349,7 @@ def test_migration_from_v1_keeps_data(tmp_path: Path) -> None:
     )
     db.close()
     s = Store(data)
-    assert s.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    assert s.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
     m1 = s.texts("ania", ContentType.message)[0]
     assert (m1.key, m1.body) == ("m1", "treść")
     assert [t.key for t in s.texts("ania", ContentType.notice)] == ["a1"]
