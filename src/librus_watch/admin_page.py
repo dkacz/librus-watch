@@ -16,6 +16,8 @@ INDEX_HTML = """<!doctype html>
 <header><h1>librus-watch</h1><span id="updated" class="muted"></span></header>
 <main>
   <section id="tiles" class="tiles" aria-label="Zdrowie usługi"></section>
+  <section id="stream"><h2>Strumień rekordów po analizie modelu</h2>
+    <div id="filters" class="filters"></div><div id="records"></div></section>
   <section><h2>Dzieci</h2><table id="children"></table></section>
   <section><h2>Pozycje wykryte na dobę</h2><div id="c-findings" class="chart"></div></section>
   <section><h2>Oceny rodziców na dobę</h2><div id="c-ratings" class="chart"></div></section>
@@ -23,7 +25,7 @@ INDEX_HTML = """<!doctype html>
   <section><h2>Sito: nowe teksty wg decyzji</h2><div id="c-sieve" class="chart"></div></section>
   <section><h2>Błędy modułów Librusa</h2><div id="c-errors" class="chart"></div></section>
   <section><h2>Moduły: ostatnie pobranie</h2><table id="modules"></table></section>
-  <p class="muted">Panel pokazuje same liczby z migawki usługi; treści wiadomości i nazwisk w nim nie ma.</p>
+  <p class="muted">Statystyki to same liczby z migawki usługi. Strumień rekordów (gdy włączony) zawiera pełną treść i trafia do panelu przez tunel.</p>
 </main>
 <script src="/app.js"></script>
 </body>
@@ -54,6 +56,19 @@ border-bottom:1px solid var(--line);font-size:14px}th{color:var(--muted);font-we
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:13px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
 .empty{color:var(--muted);font-size:13px}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--fg);
+border-radius:6px;padding:4px 10px;cursor:pointer}
+button.on{border-color:var(--s1);color:var(--s1)}button:disabled{opacity:.5;cursor:default}
+button.good{border-color:var(--ok);color:var(--ok)}button.bad{border-color:var(--down);color:var(--down)}
+.rec{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+.rec h3{font-size:15px;margin:4px 0}.meta{color:var(--muted);font-size:12px}
+.badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);margin-right:6px}
+.badge.alert{border-color:var(--ok);color:var(--ok)}.badge.noalert{border-color:var(--warn);color:var(--warn)}
+.body{white-space:pre-wrap;font-size:13px;margin:6px 0;max-height:260px;overflow:auto}
+.fnd{border-top:1px dashed var(--line);padding:6px 0;font-size:14px}.fnd q{color:var(--muted)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center}
+.state{font-size:12px;color:var(--muted)}
 @media(max-width:560px){main{padding:12px}header{padding:12px}}
 """
 
@@ -179,6 +194,97 @@ function render(now, health, daily) {
   table('modules', ['dziecko', 'moduł', 'ostatnie pobranie'], mods);
 }
 
+const CSRF = {'Content-Type': 'application/json', 'X-Panel': '1'};
+const KIND = {confirmed: 'trafne', wrong: 'nietrafne'};
+let FILTER = 'all';
+let RECS = null;
+const queued = new Set();
+
+function status(r) {
+  if (!r.findings.length) return 'none';
+  return r.findings.some(f => f.alert) ? 'alert' : 'noalert';
+}
+const FILTERS = [['all', 'wszystkie'], ['alert', 'z alertem'], ['noalert', 'pozycja bez alertu'],
+  ['none', 'bez pozycji'], ['todo', 'nieocenione']];
+function visible(r) {
+  if (FILTER === 'all') return true;
+  if (FILTER === 'todo') return !r.missed_at && r.findings.every(f => !f.rating);
+  return status(r) === FILTER;
+}
+async function rate(body, button) {
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/rate', {method: 'POST', headers: CSRF, body: JSON.stringify(body)});
+    if (!res.ok) throw new Error(String(res.status));
+    queued.add(body.action + '|' + (body.identity || body.ref));
+    renderRecords();
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = 'błąd, spróbuj ponownie';
+  }
+}
+function act(parent, text, body, cls, done, wait) {
+  const b = el('button', text, cls);
+  if (done) { b.classList.add('on'); }
+  if (wait) { b.disabled = true; b.textContent = text + ' (w kolejce)'; }
+  b.addEventListener('click', () => rate(body, b));
+  parent.append(b);
+}
+function renderRecords() {
+  const box = document.getElementById('records');
+  const fl = document.getElementById('filters');
+  fl.replaceChildren(); box.replaceChildren();
+  if (!RECS) return;
+  if (!RECS.enabled) { box.append(el('p', 'Strumień wyłączony: ustaw stats.records: true w config.yaml usługi.', 'empty')); return; }
+  FILTERS.forEach(([k, t]) => {
+    const b = el('button', t, k === FILTER ? 'on' : ''); b.addEventListener('click', () => { FILTER = k; renderRecords(); }); fl.append(b);
+  });
+  const list = RECS.records.filter(visible);
+  if (!list.length) { box.append(el('p', 'brak rekordów', 'empty')); return; }
+  list.forEach(r => {
+    const card = el('div', undefined, 'rec');
+    const st = status(r);
+    const head = el('div', undefined, 'meta');
+    head.append(el('span', st === 'alert' ? 'alert wysłany' : st === 'noalert' ? 'pozycja bez alertu' : 'bez pozycji', 'badge ' + st));
+    head.append(document.createTextNode(`${r.child} · ${r.source} · ${r.sent} · analiza ${fmt(r.analyzed_at)} · sito: ${r.sieve || '–'} · ${r.author}`));
+    card.append(head, el('h3', r.title));
+    const d = el('details'); d.append(el('summary', 'treść')); d.append(el('div', r.body, 'body')); card.append(d);
+    r.findings.forEach(f => {
+      const row = el('div', undefined, 'fnd');
+      row.append(document.createTextNode(`${f.kind} · ${f.day}${f.at ? ' ' + f.at : ''} · ${f.what} `));
+      if (f.quote) row.append(el('q', f.quote));
+      row.append(document.createTextNode(f.retracted ? ' · wycofana' : ''));
+      row.append(el('span', f.alert ? ` · alert ${f.alert.type} ${fmt(f.alert.sent_at)}` : ' · bez alertu', 'state'));
+      const a = el('div', undefined, 'acts');
+      const cur = f.rating ? f.rating.rating : null;
+      const q = k => queued.has(k + '|' + f.identity) || RECS.pending.some(p => p.action === k && p.identity === f.identity);
+      act(a, 'Trafne', {action: 'confirmed', identity: f.identity}, 'good', cur === 'confirmed', q('confirmed'));
+      act(a, 'Nietrafne', {action: 'wrong', identity: f.identity}, 'bad', cur === 'wrong' && !f.rating.reason, q('wrong'));
+      Object.entries(RECS.reasons).forEach(([k, t]) =>
+        act(a, t, {action: 'wrong', identity: f.identity, reason: k}, 'bad', cur === 'wrong' && f.rating.reason === k, false));
+      row.append(a); card.append(row);
+    });
+    const a = el('div', undefined, 'acts');
+    const mq = queued.has('missed|' + r.ref) || RECS.pending.some(p => p.action === 'missed' && p.ref === r.ref);
+    act(a, 'Brak (powinien być alert)', {action: 'missed', ref: r.ref}, 'bad', !!r.missed_at, mq);
+    if (r.missed_at) a.append(el('span', 'zgłoszono ' + fmt(r.missed_at), 'state'));
+    if (!RECS.can_rate) a.append(el('span', 'oceny wyłączone (brak skrzynki)', 'state'));
+    card.append(a); box.append(card);
+  });
+}
+async function loadRecords() {
+  try {
+    RECS = await (await fetch('/api/records?limit=100')).json();
+    queued.forEach(k => {
+      const [action, id] = k.split('|');
+      const applied = RECS.records.some(r => action === 'missed' ? r.ref === id && r.missed_at
+        : r.findings.some(f => f.identity === id && f.rating && f.rating.rating === action));
+      if (applied) queued.delete(k);
+    });
+    renderRecords();
+  } catch (e) { /* strumień odświeży się przy następnej próbie */ }
+}
+
 async function load() {
   try {
     const [a, b] = await Promise.all([fetch('/api/now'), fetch('/api/daily?days=30')]);
@@ -189,5 +295,7 @@ async function load() {
   }
 }
 load();
+loadRecords();
 setInterval(load, 60000);
+setInterval(loadRecords, 10000);
 """

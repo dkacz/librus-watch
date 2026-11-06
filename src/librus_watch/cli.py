@@ -91,6 +91,7 @@ def _parser() -> argparse.ArgumentParser:
     adm = sub.add_parser("admin-panel", help="panel admina ze statystykami (tylko do odczytu)")
     adm.add_argument("--port", type=int, default=8092)
     adm.add_argument("--stats-dir", type=Path, default=Path("/stats"), help="katalog migawki")
+    adm.add_argument("--inbox-dir", type=Path, default=None, help="skrzynka ocen (zapis z panelu)")
     ev = sub.add_parser("eval", help="lokalny zestaw oceny z ocenionych przypadków (bramka)")
     ev.add_argument("--set-baseline", action="store_true", help="zapisz wynik jako odniesienie")
     once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
@@ -408,7 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "admin-panel":  # pragma: no cover - serwer
         setup_logging("INFO")
-        admin_serve(args.port, args.stats_dir)
+        admin_serve(args.port, args.stats_dir, args.inbox_dir)
         return EXIT_OK
     try:
         cfg = load_config(args.config)

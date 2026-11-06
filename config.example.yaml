@@ -128,4 +128,7 @@ telemetry:
 # i zamontuj go osobno, żeby panel nie widział bazy.
 stats:
   enabled: true
+  # records: true      # strumień rekordów z PEŁNĄ TREŚCIĄ i oceny z panelu (ADR-026), domyślnie wyłączone
+  # records_days: 14
+  # inbox_dir: /inbox  # skrzynka ocen z panelu (jedyny katalog z zapisem dla panelu)
   # dir: /data/stats

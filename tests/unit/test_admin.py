@@ -156,7 +156,7 @@ def test_api_serves_snapshot_and_limits_days(server: tuple[str, Path]) -> None:
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "DELETE", "PATCH"])
-def test_only_get_is_allowed(server: tuple[str, Path], method: str) -> None:
+def test_other_methods_are_denied_outside_rate(server: tuple[str, Path], method: str) -> None:
     base, _ = server
     req = urllib.request.Request(base + "/", method=method, data=b"x")
     with pytest.raises(urllib.error.HTTPError) as exc:
@@ -172,3 +172,116 @@ def test_server_logs_no_requests(
     get(base + "/api/daily?days=3&token=SEKRET")
     assert "SEKRET" not in caplog.text
     assert "SEKRET" not in capsys.readouterr().err
+
+
+# --- strumień rekordów i oceny (ADR-026) ------------------------------------------------------
+
+
+@pytest.fixture
+def rec_server(tmp_path: Path) -> Iterator[tuple[str, Path, Path]]:
+    inbox = tmp_path / "inbox"
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), admin.handler(tmp_path / "stats", inbox))
+    (tmp_path / "stats").mkdir()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}", tmp_path / "stats", inbox
+    srv.shutdown()
+    srv.server_close()
+
+
+def post(url: str, body: object, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+    h = {"Content-Type": "application/json", "X-Panel": "1"} if headers is None else headers
+    data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, headers=h, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def test_records_disabled_then_served(rec_server: tuple[str, Path, Path]) -> None:
+    base, stats, _ = rec_server
+    off = json.loads(get(base + "/api/records")[2])
+    assert off["enabled"] is False and off["records"] == [] and off["can_rate"] is True
+    rows = [{"ref": f"a|b|{i}", "title": f"t{i}"} for i in range(5)]
+    (stats / "records.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows) + "zepsute\n[1]\n"
+    )
+    on = json.loads(get(base + "/api/records?limit=2")[2])
+    assert on["enabled"] and [r["ref"] for r in on["records"]] == ["a|b|0", "a|b|1"]
+    assert "day" in on["reasons"]
+    assert len(json.loads(get(base + "/api/records?limit=abc")[2])["records"]) == 5
+
+
+def test_rate_queues_file_and_shows_pending(rec_server: tuple[str, Path, Path]) -> None:
+    base, _, inbox = rec_server
+    code, _ = post(base + "/api/rate", {"action": "wrong", "identity": "abc", "reason": "day"})
+    assert code == 200
+    files = list(inbox.glob("*.json"))
+    assert len(files) == 1 and json.loads(files[0].read_text()) == {
+        "action": "wrong", "identity": "abc", "reason": "day",
+    }  # fmt: skip
+    assert not list(inbox.glob("*.tmp"))
+    assert post(base + "/api/rate", {"action": "missed", "ref": "a|b|c"})[0] == 200
+    pend = json.loads(get(base + "/api/records")[2])["pending"]
+    assert {p["action"] for p in pend} == {"wrong", "missed"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"action": "delete", "identity": "x"},
+        {"action": "confirmed"},
+        {"action": "confirmed", "identity": ""},
+        {"action": "confirmed", "identity": 5},
+        {"action": "wrong", "identity": "x", "reason": "zmyslone"},
+        {"action": "missed", "identity": "x"},
+        [1],
+    ],
+)
+def test_rate_rejects_invalid(rec_server: tuple[str, Path, Path], body: object) -> None:
+    base, _, inbox = rec_server
+    assert post(base + "/api/rate", body)[0] == 422
+    assert not inbox.exists() or not list(inbox.glob("*"))
+
+
+def test_rate_csrf_and_size_guards(rec_server: tuple[str, Path, Path]) -> None:
+    base, _, inbox = rec_server
+    ok = {"action": "missed", "ref": "a|b|c"}
+    assert post(base + "/api/rate", ok, {"Content-Type": "application/json"})[0] == 403
+    assert post(base + "/api/rate", ok, {"Content-Type": "text/plain", "X-Panel": "1"})[0] == 403
+    evil = {"Content-Type": "application/json", "X-Panel": "1", "Origin": "https://evil.example"}
+    assert post(base + "/api/rate", ok, evil)[0] == 403
+    same = {**evil, "Origin": base}
+    assert post(base + "/api/rate", ok, same)[0] == 200
+    assert post(base + "/api/rate", b"")[0] == 400
+    assert post(base + "/api/rate", b"x" * 5000)[0] == 400
+    assert post(base + "/api/rate", b"{zepsute")[0] == 422
+    assert len(list(inbox.glob("*.json"))) == 1
+
+
+def test_rate_full_inbox_and_disabled(
+    rec_server: tuple[str, Path, Path], server: tuple[str, Path]
+) -> None:
+    base, _, inbox = rec_server
+    inbox.mkdir()
+    for i in range(admin.MAX_PENDING):
+        (inbox / f"{i}.json").write_text("{}")
+    assert post(base + "/api/rate", {"action": "missed", "ref": "a|b|c"})[0] == 429
+    assert len(admin.pending(inbox)) == admin.MAX_PENDING
+    plain, _ = server  # panel bez skrzynki
+    assert post(plain + "/api/rate", {"action": "missed", "ref": "a|b|c"})[0] == 503
+
+
+def test_pending_ignores_broken_files(tmp_path: Path) -> None:
+    assert admin.pending(None) == [] and admin.pending(tmp_path / "nie-ma") == []
+    (tmp_path / "a.json").write_text("zepsute")
+    (tmp_path / "b.json").write_text("[1]")
+    (tmp_path / "c.json").write_text(json.dumps({"action": "missed", "ref": "r", "x": 1}))
+    assert admin.pending(tmp_path) == [{"action": "missed", "identity": None, "ref": "r"}]
+
+
+def test_page_wires_stream_and_csrf_header() -> None:
+    from librus_watch.admin_page import APP_JS
+
+    assert "/api/rate" in APP_JS and "'X-Panel': '1'" in APP_JS and "/api/records" in APP_JS

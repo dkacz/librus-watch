@@ -26,6 +26,7 @@ _Stan na 2026-11-06 (po etapach E11 i E12). Pełny plan z kryteriami odbioru: [d
 | Uczenie się na ocenach: przyciski w Telegramie, przegląd w terminalu (`librus-watch review`), codzienne sprawdzanie w tle tekstów odrzuconych przez filtr, cotygodniowe pytania i raport, zmiany modelu i promptu sprawdzane na Twoich ocenionych przypadkach (`librus-watch eval`) | gotowe |
 | Kontener na serwer domowy (Podman, Quadlet): bez kodu źródłowego w obrazie, bez uprawnień, system plików tylko do odczytu, stan zachowany po restarcie | gotowe (instrukcja krok po kroku dla rodzica: przy wydaniu) |
 | Panel admina ze statystykami własnej instalacji (osobny kontener, tylko do odczytu, same liczby): zdrowie usługi i kont, pozycje, oceny, sito, model, błędy modułów | gotowe (`librus-watch admin-panel`) |
+| Strumień rekordów po analizie modelu w panelu (opcjonalnie, z pełną treścią) z ocenami „trafne / nietrafne / brak” jednym kliknięciem | gotowe (`stats.records`) |
 | Telemetria zbiorcza (opt-out): raz w tygodniu same liczby, z odbiornikiem projektu | gotowe |
 | Wspólny korpus przykładów (opt-out): ocenione przypadki po anonimizacji, raz dziennie, z dziennikiem wysłanych | gotowe (przegląd prawny przed publicznym odbiornikiem) |
 | Tydzień próbny i pierwsze wydanie | planowane |

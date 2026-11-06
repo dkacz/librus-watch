@@ -37,6 +37,7 @@ from librus_watch.feedback import (
     write_metrics,
 )
 from librus_watch.lock import InstanceLock
+from librus_watch.records import process_inbox, write_records
 from librus_watch.secret_env import get_secret
 from librus_watch.stats import note_cycle, write_stats
 from librus_watch.store import Store
@@ -160,6 +161,7 @@ def run_once(
         )
         note_cycle(store, now, time.monotonic() - started)
         write_stats(cfg, store, now)
+        write_records(cfg, store, now)
     log.info(
         "przebieg: %d dzieci pobranych, %d pominiętych, %d błędów, pilnych wysłanych %d",
         len(report.reports),
@@ -333,6 +335,7 @@ def run_service(
                 daily_feedback(cfg, store, now)
                 send_weekly(cfg, store, now)
                 send_corpus(cfg, store, now)
+                process_inbox(cfg, store, now)
                 stop.wait(tick)
         finally:
             stop.set()

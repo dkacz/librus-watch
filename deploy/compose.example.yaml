@@ -31,12 +31,13 @@ services:
       - ./config.yaml:/config/config.yaml:ro
       - librus-watch-data:/data
       - librus-watch-stats:/stats
+      - librus-watch-inbox:/inbox
 
   # Panel admina (ADR-025): tylko migawka liczb, bez bazy i sekretów.
   # W config.yaml usługi ustaw stats.dir: /stats. Panel: http://127.0.0.1:8092
   librus-admin:
     image: librus-watch:latest
-    command: ["admin-panel", "--port", "8092", "--stats-dir", "/stats"]
+    command: ["admin-panel", "--port", "8092", "--stats-dir", "/stats", "--inbox-dir", "/inbox"]
     restart: unless-stopped
     user: "10001"
     read_only: true
@@ -47,6 +48,7 @@ services:
       - "127.0.0.1:8092:8092"
     volumes:
       - librus-watch-stats:/stats:ro
+      - librus-watch-inbox:/inbox
     depends_on: [librus-watch]
 
 secrets:
@@ -60,3 +62,4 @@ secrets:
 volumes:
   librus-watch-data:
   librus-watch-stats:
+  librus-watch-inbox:

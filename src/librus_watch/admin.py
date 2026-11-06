@@ -1,15 +1,18 @@
-"""Panel admina „Moja instancja” (tylko do odczytu).
+"""Panel admina „Moja instancja”.
 
-Panel czyta wyłącznie migawkę liczb z `stats.py` (`now.json`, `daily.jsonl`), nigdy bazy,
-więc nie ma dostępu do treści wiadomości, nazwisk ani sekretów. Serwer odpowiada tylko
-na GET, nie zapisuje logów z adresami i parametrami zapytań i nie wysyła nic na zewnątrz.
+Panel czyta migawkę z `stats.py` (`now.json`, `daily.jsonl` i, gdy właściciel je włączył,
+`records.jsonl` ze strumieniem rekordów, ADR-026), nigdy bazy ani sekretów. Jedyny zapis to
+`POST /api/rate`: plik z oceną w skrzynce, który usługa waliduje i zapisuje (`records.py`).
+Serwer nie zapisuje logów z adresami i parametrami zapytań i nie wysyła nic na zewnątrz.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,12 +21,18 @@ from urllib.parse import parse_qs, urlsplit
 
 from librus_watch.admin_page import APP_CSS, APP_JS, INDEX_HTML
 from librus_watch.stats import DAILY_FILE, NOW_FILE, STATS_SCHEMA
+from librus_watch.telegram import REASONS
 
 log = logging.getLogger(__name__)
 
 IDLE_HOURS = 16
 """Powyżej tylu godzin bez cyklu usługa jest uznana za nieczynną (noc poza godzinami to ok. 9 h)."""
 MAX_DAYS = 400
+RECORDS_FILE = "records.jsonl"
+MAX_BODY = 2048
+MAX_PENDING = 100
+ACTIONS = ("confirmed", "wrong", "missed")
+CSRF_HEADER = "X-Panel"
 
 HEADERS = {
     "Cache-Control": "no-store",
@@ -117,8 +126,71 @@ def health(now: dict[str, Any] | None, wall_epoch: float | None = None) -> dict[
     }
 
 
-def handler(stats_dir: Path) -> type[BaseHTTPRequestHandler]:
-    """Klasa obsługi żądań panelu (tylko GET; statyczna strona i trzy ścieżki API)."""
+def load_records(stats_dir: Path, limit: int) -> list[dict[str, Any]] | None:
+    """Rekordy ze strumienia (od najnowszej analizy); `None`, gdy strumień jest wyłączony."""
+    try:
+        text = (stats_dir / RECORDS_FILE).read_text()
+    except OSError:
+        return None
+    rows = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("ref"), str):
+            rows.append(row)
+    return rows[: max(1, min(limit, 300))]
+
+
+def pending(inbox: Path | None) -> list[dict[str, Any]]:
+    """Oceny czekające w skrzynce na przyjęcie przez usługę (tylko pola potrzebne w UI)."""
+    if inbox is None or not inbox.is_dir():
+        return []
+    out = []
+    for p in sorted(inbox.glob("*.json"))[:MAX_PENDING]:
+        try:
+            req = json.loads(p.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(req, dict):
+            out.append({k: req.get(k) for k in ("action", "identity", "ref")})
+    return out
+
+
+def validate_rating(req: object) -> dict[str, str] | None:
+    """Sprawdza żądanie oceny z UI i zwraca czystą wersję albo `None`."""
+    if not isinstance(req, dict) or req.get("action") not in ACTIONS:
+        return None
+    action = str(req["action"])
+    key = "ref" if action == "missed" else "identity"
+    val = req.get(key)
+    if not isinstance(val, str) or not 0 < len(val) <= 300:
+        return None
+    clean = {"action": action, key: val}
+    reason = req.get("reason") or ""
+    if action == "wrong" and reason:
+        if reason not in REASONS:
+            return None
+        clean["reason"] = str(reason)
+    return clean
+
+
+def queue_rating(inbox: Path, clean: dict[str, str]) -> bool:
+    """Zapisuje ocenę w skrzynce (atomowo); `False`, gdy skrzynka jest pełna."""
+    inbox.mkdir(parents=True, exist_ok=True)
+    if len(list(inbox.glob("*.json"))) >= MAX_PENDING:
+        return False
+    name = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    tmp = inbox / f"{name}.tmp"
+    tmp.write_text(json.dumps(clean))
+    os.chmod(tmp, 0o600)
+    tmp.replace(inbox / f"{name}.json")
+    return True
+
+
+def handler(stats_dir: Path, inbox: Path | None = None) -> type[BaseHTTPRequestHandler]:
+    """Klasa obsługi żądań panelu (GET; jedyny zapis to `POST /api/rate` do skrzynki)."""
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, body: bytes, ctype: str) -> None:
@@ -150,13 +222,56 @@ def handler(stats_dir: Path) -> type[BaseHTTPRequestHandler]:
                 raw = parse_qs(url.query).get("days", ["30"])[0]
                 days = int(raw) if raw.isdigit() else 30
                 self._json({"daily": load_daily(stats_dir, days)})
+            elif url.path == "/api/records":
+                raw = parse_qs(url.query).get("limit", ["100"])[0]
+                rows = load_records(stats_dir, int(raw) if raw.isdigit() else 100)
+                self._json(
+                    {
+                        "enabled": rows is not None,
+                        "can_rate": inbox is not None,
+                        "records": rows or [],
+                        "pending": pending(inbox),
+                        "reasons": REASONS,
+                    }
+                )
             else:
                 self._send(404, b"nie ma takiej strony", "text/plain; charset=utf-8")
 
         def _deny(self) -> None:
-            self._send(405, b"tylko GET", "text/plain; charset=utf-8")
+            self._send(405, b"metoda niedozwolona", "text/plain; charset=utf-8")
 
-        do_POST = do_PUT = do_DELETE = do_PATCH = _deny
+        def _text(self, code: int, text: str) -> None:
+            self._send(code, text.encode(), "text/plain; charset=utf-8")
+
+        def do_POST(self) -> None:
+            if urlsplit(self.path).path != "/api/rate":
+                self._deny()
+                return
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            origin = self.headers.get("Origin")
+            same = origin is None or urlsplit(origin).netloc == self.headers.get("Host")
+            if self.headers.get(CSRF_HEADER) != "1" or ctype != "application/json" or not same:
+                self._text(403, "niedozwolone")
+                return
+            if inbox is None:
+                self._text(503, "oceny wylaczone")
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_BODY:
+                self._text(400, "zly rozmiar")
+                return
+            try:
+                clean = validate_rating(json.loads(self.rfile.read(length)))
+            except ValueError:
+                clean = None
+            if clean is None:
+                self._text(422, "nieprawidlowa ocena")
+            elif not queue_rating(inbox, clean):
+                self._text(429, "skrzynka pelna")
+            else:
+                self._json({"queued": True})
+
+        do_PUT = do_DELETE = do_PATCH = _deny
 
         def log_message(self, *_args: object) -> None:  # bez adresów i parametrów w logach
             return
@@ -164,7 +279,9 @@ def handler(stats_dir: Path) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(port: int, stats_dir: Path) -> None:  # pragma: no cover - serwer
+def serve(  # pragma: no cover - serwer
+    port: int, stats_dir: Path, inbox: Path | None = None
+) -> None:
     """Uruchamia panel na wszystkich interfejsach kontenera (port wystawia tylko loopback hosta)."""
     log.info("panel: nasłuchuje na porcie %d", port)
-    ThreadingHTTPServer(("0.0.0.0", port), handler(stats_dir)).serve_forever()  # noqa: S104
+    ThreadingHTTPServer(("0.0.0.0", port), handler(stats_dir, inbox)).serve_forever()  # noqa: S104

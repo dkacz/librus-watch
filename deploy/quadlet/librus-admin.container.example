@@ -11,7 +11,7 @@ Description=librus-watch: panel admina (tylko do odczytu)
 [Container]
 ContainerName=librus-admin
 Image=localhost/librus-watch:<wersja>
-Exec=admin-panel --port 8092 --stats-dir /stats
+Exec=admin-panel --port 8092 --stats-dir /stats --inbox-dir /inbox
 # tylko loopback hosta: tunel kieruje na http://127.0.0.1:8092
 PublishPort=127.0.0.1:8092:8092
 UserNS=keep-id:uid=10001,gid=10001
@@ -21,6 +21,8 @@ DropCapability=ALL
 NoNewPrivileges=true
 Environment=TZ=Europe/Warsaw
 Volume=%h/.local/share/librus-watch-stats:/stats:ro,z
+# skrzynka ocen (ADR-026): jedyny katalog z zapisem; ten sam co w usłudze (Volume=...-inbox:/inbox:z)
+Volume=%h/.local/share/librus-watch-inbox:/inbox:z
 LogDriver=journald
 
 [Service]
