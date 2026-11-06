@@ -30,6 +30,7 @@ from librus_watch.librus.adapter import (
 from librus_watch.librus.gateway import MODULES, GatewayData, fetch_all
 from librus_watch.librus.session import LibrusSession
 from librus_watch.models import Entry, Finding, Origin, TextItem
+from librus_watch.reading import ReadingPlan, plan_reading
 from librus_watch.store import Change, Store
 
 log = logging.getLogger(__name__)
@@ -141,6 +142,7 @@ class SyncReport:
         findings: Odstępstwa: w dry-run wszystkie wykryte, w zwykłym cyklu nowe wersje.
         retracted: Ile wcześniejszych odstępstw wycofano (już nieaktualne).
         removed: Ile wpisów zniknęło z kompletnie pobranych modułów (ADR-008).
+        reading: Plan odczytu tekstów przez model (sito, cache, kolejka, budżet).
     """
 
     child: str
@@ -155,6 +157,7 @@ class SyncReport:
     findings: list[Finding] = field(default_factory=list)
     retracted: int = 0
     removed: int = 0
+    reading: ReadingPlan | None = None
 
     @property
     def ok(self) -> bool:
@@ -366,6 +369,9 @@ def sync_child(
 
     if dry_run:
         report.findings = detection.findings
+        report.reading = plan_reading(
+            [*snap.texts, *new_messages], store, cfg.llm, today, now, dry_run=True
+        )
         log.info(
             "dziecko %s (dry-run): %d modułów, %d odstępstw",
             child,
@@ -395,6 +401,13 @@ def sync_child(
     if cfg.fetch.message_bodies and ContentType.message not in cfg.ignore_content:
         report.bodies = _fetch_bodies(cfg, session, store, child, today)
 
+    report.reading = plan_reading(
+        store.texts_to_extract(cfg.llm.max_attempts_per_message, child),
+        store,
+        cfg.llm,
+        today,
+        now,
+    )
     report.findings = [f for f in detection.findings if store.add_finding(f, now)]
     current_ids = {f.identity for f in detection.findings}
     for old_finding in store.child_findings(child, detection.origins, today, detection.day_to):

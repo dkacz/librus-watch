@@ -19,12 +19,13 @@ _Stan na 2026-11-06. Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/ro
 | Logowanie do Librusa i pobieranie danych (plan lekcji, zmiany planu, dni wolne, terminarz, zadania, ogłoszenia, oceny i komentarze, wiadomości) | gotowe |
 | Ochrona konta przy logowaniu (limit, przerwa po odmowie, zapamiętane urządzenie) | gotowe |
 | Wykrywanie odstępstw bez sztucznej inteligencji: dzień wolny, inny początek lub koniec lekcji, odwołania, zastępstwa, nowe i przesunięte sprawdziany, wycieczki, zebrania | gotowe |
+| Przygotowanie tekstów dla modelu: odrzucanie nieaktualnych i nieistotnych, zapamiętywanie wyników, dzienny limit | gotowe |
 | Czytanie wiadomości i ogłoszeń przez model językowy (zbiórki, rzeczy do przyniesienia, zgody) | w przygotowaniu |
 | Powiadomienia w Telegramie i innych kanałach, z przyciskami do oceny | planowane |
 | Działanie jako usługa w kontenerze | planowane |
 | Tydzień próbny i pierwsze wydanie | planowane |
 
-Dziś można uruchomić `librus-watch fetch --dry-run`: program loguje się, pobiera dane i wypisuje liczbę rekordów oraz listę wykrytych odstępstw (dzień i rodzaj, bez treści). Nie wysyła jeszcze żadnych powiadomień.
+Dziś można uruchomić `librus-watch fetch --dry-run`: program loguje się, pobiera dane i wypisuje liczbę rekordów, listę wykrytych odstępstw (dzień i rodzaj, bez treści) oraz ile tekstów czekałoby na odczyt przez model. Nie wysyła jeszcze żadnych powiadomień i nie łączy się z modelem.
 
 ## Przykładowe powiadomienia
 

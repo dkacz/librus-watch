@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from librus_watch.secret_env import MissingSecretError, get_secret
 
 _FORBIDDEN_KEY = re.compile(r"pass|secret|token|api_?key|login|credential", re.IGNORECASE)
-_ALLOWED_KEYS = frozenset({"api_key_required", "max_logins_per_day"})
+_ALLOWED_KEYS = frozenset({"api_key_required", "max_logins_per_day", "daily_tokens"})
 log = logging.getLogger(__name__)
 _LOCAL_HTTP = re.compile(
     r"^http://(localhost|127\.0\.0\.1|\[::1\]|[\w-]+|[\w.-]+\.(lan|local|internal|home\.arpa)"
@@ -206,6 +206,41 @@ class FetchConfig(Strict):
     nie otwiera całej historii)."""
 
 
+DEFAULT_KEYWORDS: tuple[str, ...] = (
+    "przynie",
+    "zabra",
+    "zgod",
+    "popraw",
+    "jutr",
+    "pojutrz",
+    "zbiórk",
+    "zbiork",
+    "wcześniej",
+    "wczesniej",
+    "później",
+    "pozniej",
+    "odwoł",
+    "odwol",
+    "strój",
+    "stroj",
+    "opłat",
+    "oplat",
+    "wycieczk",
+    "wyjści",
+    "wyjsci",
+    "kartków",
+    "kartkow",
+    "sprawdzian",
+    "dopilnowa",
+    "termin",
+    "do końca",
+    "do konca",
+    "nie odbęd",
+    "nie odbed",
+)
+"""Rdzenie słów, przy których komentarz albo uwaga może nieść odstępstwo."""
+
+
 class LLMConfig(Strict):
     """Model językowy przez API zgodne z OpenAI (`/v1/chat/completions`)."""
 
@@ -225,6 +260,16 @@ class LLMConfig(Strict):
     """Pozycje z niższą pewnością modelu są odrzucane."""
     max_attempts_per_message: Annotated[int, Field(ge=1, le=10)] = 3
     """Po tylu nieudanych analizach wiadomość jest pomijana (i odnotowana w logu)."""
+    backfill_days: Annotated[int, Field(ge=1, le=120)] = 14
+    """Teksty starsze niż tyle dni (i bez terminu w przyszłości) sito odrzuca bez modelu."""
+    keywords: list[str] = Field(default_factory=lambda: list(DEFAULT_KEYWORDS))
+    """Słowa-klucze przepuszczające teksty z kanałów o słabym sygnale (komentarze, uwagi)."""
+    daily_requests: Annotated[int, Field(ge=1, le=10_000)] = 200
+    """Dzienny limit zapytań do modelu."""
+    daily_tokens: Annotated[int, Field(ge=1_000, le=50_000_000)] = 400_000
+    """Dzienny limit tokenów (szacowanych przed zapytaniem)."""
+    urgent_reserve: Annotated[float, Field(ge=0, le=0.9)] = 0.25
+    """Część budżetu zarezerwowana dla tekstów z terminem na dziś i jutro."""
     api_key_required: bool = False
     """Czy sekret `LLM_API_KEY` jest wymagany (lokalne serwery zwykle go nie potrzebują)."""
 

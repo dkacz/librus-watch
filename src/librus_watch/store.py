@@ -19,6 +19,8 @@ Tabele:
 * `lookups`: słowniki API (przedmioty, użytkownicy, kategorie, klasa) per dziecko,
 * `module_state`: kiedy moduł API był ostatnio pobrany (moduły rzadko zmienne),
 * `standing_plan`: plan stały z `TimetableEntries` (podstawa normy dnia),
+* `llm_cache`: wyniki modelu (także puste) po odcisku treści, wersji promptu,
+  modelu i schematu; wspólne dla wszystkich dzieci (ADR-013),
 * `findings`: wykryte odstępstwa (historia wersji),
 * `sent`: co i w jakiej wersji zostało już wysłane.
 
@@ -28,6 +30,7 @@ Wpisy, teksty, zmiany planu i dni wolne mają odcisk treści (`fp`). Zapis zwrac
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -53,7 +56,7 @@ from librus_watch.models import (
     TextItem,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -177,7 +180,23 @@ CREATE TABLE standing_plan (
 );
 """
 
-_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2, 3: _V2_TO_V3, 4: _V3_TO_V4}
+_V4_TO_V5 = """
+ALTER TABLE texts ADD COLUMN content_fp TEXT;
+ALTER TABLE texts ADD COLUMN sieve TEXT;
+CREATE TABLE llm_cache (
+    content_fp TEXT NOT NULL, prompt_version TEXT NOT NULL, model TEXT NOT NULL,
+    schema_version TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY (content_fp, prompt_version, model, schema_version)
+);
+"""
+
+_MIGRATIONS: dict[int, str] = {
+    1: _SCHEMA_V1,
+    2: _V1_TO_V2,
+    3: _V2_TO_V3,
+    4: _V3_TO_V4,
+    5: _V4_TO_V5,
+}
 """Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
 
 
@@ -849,20 +868,25 @@ class Store:
                 (body, t.child, t.source.value, t.key),
             )
 
-    def texts_to_extract(self, max_attempts: int) -> list[TextItem]:
+    def texts_to_extract(self, max_attempts: int, child: str | None = None) -> list[TextItem]:
         """Teksty z treścią, które czekają na odczyt przez model.
 
         Args:
             max_attempts: Pomija teksty z taką lub większą liczbą nieudanych odczytów.
+            child: Tylko teksty tego dziecka (domyślnie wszystkie).
 
         Returns:
             Teksty od najstarszego.
         """
-        rows = self.db.execute(
+        sql = (
             "SELECT * FROM texts WHERE body IS NOT NULL AND extracted_at IS NULL "
-            "AND extract_attempts<? ORDER BY sent, key",
-            (max_attempts,),
-        ).fetchall()
+            "AND extract_attempts<?"
+        )
+        args: list[object] = [max_attempts]
+        if child is not None:
+            sql += " AND child=?"
+            args.append(child)
+        rows = self.db.execute(sql + " ORDER BY sent, key", args).fetchall()
         return [self._text(r) for r in rows]
 
     def mark_extracted(self, t: TextItem, now: datetime | None) -> None:
@@ -883,6 +907,99 @@ class Store:
                 "UPDATE texts SET extracted_at=? WHERE child=? AND source=? AND key=?",
                 (now.isoformat(), t.child, t.source.value, t.key),
             )
+
+    def set_sieve(self, t: TextItem, reason: str, content_fp: str) -> None:
+        """Zapisuje decyzję sita i odcisk treści tekstu (do diagnozy, nie do logów).
+
+        Args:
+            t: Tekst.
+            reason: Powód decyzji sita.
+            content_fp: Odcisk treści (klucz cache).
+        """
+        self.db.execute(
+            "UPDATE texts SET sieve=?, content_fp=? WHERE child=? AND source=? AND key=?",
+            (reason, content_fp, t.child, t.source.value, t.key),
+        )
+
+    def sieve_of(self, t: TextItem) -> tuple[str | None, str | None]:
+        """Decyzja sita i odcisk treści zapisane przy tekście.
+
+        Args:
+            t: Tekst.
+
+        Returns:
+            (powód, odcisk) albo (None, None).
+        """
+        row = self.db.execute(
+            "SELECT sieve, content_fp FROM texts WHERE child=? AND source=? AND key=?",
+            (t.child, t.source.value, t.key),
+        ).fetchone()
+        return (row["sieve"], row["content_fp"]) if row else (None, None)
+
+    # --- cache wyników modelu i budżet -------------------------------------------
+
+    def cache_get(self, key: tuple[str, str, str, str]) -> list[dict[str, object]] | None:
+        """Wynik modelu z cache.
+
+        Args:
+            key: (odcisk treści, wersja promptu, model, wersja schematu).
+
+        Returns:
+            Lista pozycji (może być pusta: „nic do zgłoszenia”) albo `None` przy braku.
+        """
+        row = self.db.execute(
+            "SELECT result FROM llm_cache WHERE content_fp=? AND prompt_version=? AND model=? "
+            "AND schema_version=?",
+            key,
+        ).fetchone()
+        if row is None:
+            return None
+        value = json.loads(row["result"])
+        return value if isinstance(value, list) else None
+
+    def cache_put(
+        self, key: tuple[str, str, str, str], result: list[dict[str, object]], now: datetime
+    ) -> None:
+        """Zapisuje wynik modelu (także pusty) w cache.
+
+        Args:
+            key: (odcisk treści, wersja promptu, model, wersja schematu).
+            result: Pozycje bez przypisania do dziecka.
+            now: Moment zapisu.
+        """
+        self.db.execute(
+            "INSERT OR REPLACE INTO llm_cache VALUES(?,?,?,?,?,?)",
+            (*key, json.dumps(result, ensure_ascii=False, default=str), now.isoformat()),
+        )
+
+    def llm_usage(self, day: date) -> tuple[int, int]:
+        """Zużycie budżetu modelu w danym dniu.
+
+        Args:
+            day: Dzień.
+
+        Returns:
+            (liczba zapytań, liczba tokenów).
+        """
+        raw = self.get_meta(f"llm_usage:{day.isoformat()}")
+        if not raw:
+            return 0, 0
+        data = json.loads(raw)
+        return int(data.get("requests", 0)), int(data.get("tokens", 0))
+
+    def add_llm_usage(self, day: date, requests: int, tokens: int) -> None:
+        """Dolicza zużycie budżetu modelu.
+
+        Args:
+            day: Dzień.
+            requests: Liczba zapytań.
+            tokens: Liczba tokenów.
+        """
+        used_r, used_t = self.llm_usage(day)
+        self.set_meta(
+            f"llm_usage:{day.isoformat()}",
+            json.dumps({"requests": used_r + requests, "tokens": used_t + tokens}),
+        )
 
     @staticmethod
     def _text(r: sqlite3.Row) -> TextItem:
@@ -1252,6 +1369,7 @@ class Store:
                 "DELETE FROM texts WHERE COALESCE(valid_to, sent)<?",
                 "DELETE FROM plan_changes WHERE COALESCE(new_day, org_day)<?",
                 "DELETE FROM free_days WHERE date_to<?",
+                "DELETE FROM llm_cache WHERE created_at<?",
                 "DELETE FROM findings WHERE day<?",
             ):
                 removed += db.execute(sql, (d,)).rowcount

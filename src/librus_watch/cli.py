@@ -84,6 +84,14 @@ def format_report(r: SyncReport) -> str:
         lines.append(f"  pobrane treści wiadomości: {r.bodies}")
     if r.removed:
         lines.append(f"  usunięte wpisy: {r.removed}")
+    if r.reading is not None:
+        p = r.reading
+        dropped = ", ".join(f"{k}={v}" for k, v in sorted(p.dropped.items())) or "0"
+        lines.append(
+            f"  do odczytu przez model: {len(p.queue)} w kolejce (pilne {p.urgent}), "
+            f"z cache {len(p.cached)}, odłożone {p.deferred}, bez treści {p.waiting_body}; "
+            f"sito odrzuciło: {dropped}"
+        )
     label = "odstępstwa" if r.dry_run else "nowe odstępstwa"
     lines.append(
         f"  {label}: {len(r.findings)}" + (f", wycofane: {r.retracted}" if r.retracted else "")
