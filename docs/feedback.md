@@ -49,14 +49,14 @@ Program już przechowuje teksty, decyzje sita, wyniki modelu i pozycje. Pętla d
 
 Liczby z każdego cyklu (już logowane) są dodatkowo zapisywane w bazie i opcjonalnie wystawiane jako plik metryk dla `node_exporter` (textfile collector) albo przez `librus-watch stats`: liczba tekstów i pozycji, skuteczność sita i cache, czasy i tokeny modelu, odrzucenia walidacji, FP/FN według źródła, błędy modułów Librusa. Bez treści, bez nazwisk.
 
-## Część 2: wspólna pętla (korpus opt-out, telemetria opt-in)
+## Część 2: wspólna pętla (korpus i telemetria opt-out)
 
 Cel: model każdego użytkownika korzysta z pomyłek wszystkich, a żadne dane dziecka, rodzica ani nauczyciela nie opuszczają domu w formie, z której da się kogoś rozpoznać.
 
 ### Zasady
 
 - **Korpus domyślnie włączony (opt-out, ADR-018).** Wysyłka zanonimizowanych przykładów działa automatycznie; `feedback.share_corpus: false` wyłącza ją od następnego cyklu. Informacja o tym jest w README i przy pierwszym uruchomieniu, przed pierwszą wysyłką.
-- **Telemetria zbiorcza na zgodę (opt-in).**
+- **Telemetria zbiorcza domyślnie włączona (opt-out, ADR-022).**
 - **Wychodzą tylko przykłady zanonimizowane i ocenione,** nigdy surowe teksty, nigdy całe skrzynki.
 - **Użytkownik widzi dokładnie to, co wyszło:** lokalny dziennik wysłanych przykładów i polecenie do jego podglądu; może też przejrzeć paczkę przed wysyłką (`librus-watch contribute --review`).
 - **Kanał zbierania:** automatyczna wysyłka wymaga endpointu z uwierzytelnieniem paczki i limitem (projekt w E11); po stronie korpusu przegląd i historia są jawne.
@@ -72,7 +72,7 @@ Cel: model każdego użytkownika korzysta z pomyłek wszystkich, a żadne dane d
 
 Cytat w oczekiwanej pozycji odnosi się do tekstu **po** anonimizacji, więc przykład zachowuje wartość do oceny.
 
-### Telemetria zbiorcza (opt-in)
+### Telemetria zbiorcza (opt-out, ADR-022)
 
 - Tylko liczby z raportu tygodniowego, zaokrąglone i z szumem (prywatność różnicowa w prostej postaci), bez identyfikatorów szkoły, klasy i dziecka.
 - Najcenniejszy sygnał dla wszystkich: **błędy modułów Librusa** (zmiana kształtu API) i **skuteczność według źródła treści** po wydaniu nowego promptu.

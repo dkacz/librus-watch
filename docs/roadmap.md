@@ -104,7 +104,7 @@ Każdy etap kończy się testami (sekcja „Testy”), spełnieniem zasad z sekc
 | **E9 Pilot** | tydzień pracy z `--dry-run` i powiadomieniami do jednej osoby, codzienne porównanie z osią czasu w aplikacji Librus | żadne odstępstwo widoczne na osi czasu nie zostało przegapione, mało fałszywych alarmów |
 | **E10 Wydanie** | lista wydania open source (sekcja „Wydanie open source” niżej): README z instalacją krok po kroku i aktualnym stanem, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, szablony zgłoszeń, CI na pull requestach, ustawienia repo, metadane paczki, tag `v0.1.0` z obrazem kontenera | wszystkie punkty listy odhaczone; świeży klon na czystej maszynie: instalacja według README kończy się działającym `fetch --dry-run` i powiadomieniem testowym; CI zielone na pull requeście z forka |
 | **E11 Wspólny korpus (opt-out)** | domyślnie włączona automatyczna wysyłka zanonimizowanych, ocenionych przykładów (`feedback.share_corpus`, ADR-018): anonimizacja lokalna (słowniki, NER dla polskiego, uogólnienie, „w razie wątpliwości odrzuć”), informacja przy pierwszym uruchomieniu przed pierwszą wysyłką, lokalny dziennik wysłanych przykładów, endpoint zbierania z uwierzytelnieniem i limitem, przegląd po stronie korpusu, wydania z podpisaną paczką zestawu oceny, przykładów i reguł; przegląd prawny przed włączeniem | testy anonimizacji na wymyślonych tekstach z imionami, adresami, telefonami i rzadkimi wydarzeniami: zero przecieków; przykład ryzykowny odrzucany; `share_corpus: false` zatrzymuje wysyłkę od następnego cyklu; bez informacji przy pierwszym uruchomieniu nic nie wychodzi; dziennik zawiera dokładnie to, co wysłano; wkład obniżający wynik na zestawie bazowym nie wchodzi do wydania |
-| **E12 Telemetria zbiorcza (opt-in)** | liczby z raportu tygodniowego, zaokrąglone i z szumem, bez identyfikatorów; ten sam kanał co korpus (ADR-017) | test: paczka telemetrii nie zawiera identyfikatorów ani treści; szum i zaokrąglenie zgodne z ustawieniem |
+| ✅ **E12 Telemetria zbiorcza (opt-out)** | raz w tygodniu liczby zaokrąglone i z szumem, bez identyfikatorów, POST na endpoint HTTPS z konfiguracji; odbiornik `telemetry-receiver`; informacja przy pierwszym uruchomieniu (ADR-022) | test: paczka telemetrii nie zawiera identyfikatorów ani treści; szum i zaokrąglenie zgodne z ustawieniem |
 
 Po wydaniu: wspólny korpus i telemetria (E11, E12) oraz integracja z Google Calendar (osobna iteracja).
 
@@ -127,7 +127,7 @@ Repozytorium jest publiczne od początku, ale ogłoszenie i pierwsze wydanie (E1
 | | README z instalacją | krok po kroku dla rodzica: Telegram, sekrety, Podman lub Docker, pierwsze uruchomienie, wyłączenie korpusu |
 | | Licencja zależności | `librus-apix` ma niespójną licencję (plik `LICENSE` i GitHub: GPL-3.0, metadane paczki: MIT); zostajemy przy GPL-3.0-or-later (ADR-009), zgłosić niespójność autorom biblioteki |
 | | Nagłówki SPDX | `SPDX-License-Identifier: GPL-3.0-or-later` w plikach źródłowych |
-| | Przegląd prawny korpusu | przed włączeniem E11 (ADR-018); do tego czasu README opisuje korpus jako planowany |
+| | Przegląd prawny korpusu i telemetrii (oba opt-out) | przed włączeniem E11 (ADR-018); do tego czasu README opisuje korpus jako planowany |
 | | Obrazek w README | mem ze znakiem wodnym serwisu zostaje (decyzja właściciela); prawa autorskie do sprawdzenia przy wydaniu |
 
 ## Ryzyka

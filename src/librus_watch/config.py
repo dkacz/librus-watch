@@ -416,6 +416,15 @@ DEFAULT_PRIORITIES: dict[Kind, Priority] = {
 """Domyślne wagi: wysokie dla tego, co zmienia poranek albo wymaga działania przed wyjściem."""
 
 
+class TelemetryConfig(Strict):
+    """Telemetria zbiorcza (ADR-022, opt-out)."""
+
+    enabled: bool = True
+    """Raz w tygodniu paczka liczb (bez treści i identyfikatorów); `false` wyłącza."""
+    endpoint: str | None = None
+    """Adres odbiornika (HTTPS; HTTP tylko dla nazw wewnętrznych). Pusty: nic nie wychodzi."""
+
+
 class FeedbackConfig(Strict):
     """Pętla zwrotna (ADR-016, ADR-018)."""
 
@@ -448,6 +457,7 @@ class Config(Strict):
     llm: LLMConfig = LLMConfig()
     alerts: AlertsConfig = AlertsConfig()
     feedback: FeedbackConfig = FeedbackConfig()
+    telemetry: TelemetryConfig = TelemetryConfig()
 
     @model_validator(mode="after")
     def _consistent(self) -> Config:

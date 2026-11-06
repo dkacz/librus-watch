@@ -39,6 +39,7 @@ from librus_watch.secret_env import get_secret
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates, send_questions
+from librus_watch.telemetry import note_module_errors, send_weekly
 
 log = logging.getLogger(__name__)
 TICK_SECONDS = 60
@@ -129,6 +130,8 @@ def run_once(
             log.warning("dziecko %s: %s", child.id, e)
             continue
         report.reports.append(result)
+        if not dry_run:
+            note_module_errors(store, now, result.failed)
         if not result.ok:
             _record_failure(cfg, store, child.id, now, "module")
     if send_instant and not dry_run:
@@ -285,6 +288,14 @@ def run_service(
         if start_telegram:
             bot.start()
         log.info("usługa: start, %d dzieci", len(cfg.children))
+        if cfg.telemetry.enabled and not store.get_meta("telemetry_notice"):
+            deliver_text(
+                cfg,
+                "librus-watch: telemetria zbiorcza jest włączona (raz w tygodniu same "
+                "liczby, bez treści i danych dzieci). Podgląd: librus-watch telemetry "
+                "--show. Wyłączenie: telemetry.enabled: false w config.yaml.",
+            )
+            store.set_meta("telemetry_notice", clock().isoformat())
         try:
             while not stop.is_set():
                 now = clock()
@@ -301,6 +312,7 @@ def run_service(
                     run_once(cfg, store, now)
                 check_failures(cfg, store, now)
                 daily_feedback(cfg, store, now)
+                send_weekly(cfg, store, now)
                 stop.wait(tick)
         finally:
             stop.set()

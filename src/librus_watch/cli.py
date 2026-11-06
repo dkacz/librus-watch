@@ -10,6 +10,7 @@ konfiguracji lub sekretów, 3 inna instancja używa katalogu danych.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -42,6 +43,7 @@ from librus_watch.secret_env import MissingSecretError, get_secret, setup_loggin
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates
+from librus_watch.telemetry import build_packet, send_weekly, serve
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +76,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("test-notify", help="wyślij powiadomienie testowe z wymyśloną pozycją")
     sub.add_parser("run", help="usługa: pobieranie, podsumowania, odbiór kliknięć")
     sub.add_parser("review", help="przegląd kandydatów i ostatnich pozycji w terminalu")
+    tel = sub.add_parser("telemetry", help="telemetria zbiorcza: podgląd albo wysyłka paczki")
+    tel.add_argument("--send", action="store_true", help="wyślij teraz (poza harmonogramem)")
+    rec = sub.add_parser("telemetry-receiver", help="odbiornik paczek telemetrii")
+    rec.add_argument("--port", type=int, default=8090)
+    rec.add_argument("--out", type=Path, default=Path("/data/telemetry.jsonl"))
     ev = sub.add_parser("eval", help="lokalny zestaw oceny z ocenionych przypadków (bramka)")
     ev.add_argument("--set-baseline", action="store_true", help="zapisz wynik jako odniesienie")
     once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
@@ -119,6 +126,24 @@ def cmd_run_once(args: argparse.Namespace, cfg: Config) -> int:
     for child, error in result.errors.items():
         print(f"{child}: błąd ({error})")
     return EXIT_OK if not result.errors else EXIT_FETCH
+
+
+def cmd_telemetry(args: argparse.Namespace, cfg: Config, post: Any = None) -> int:
+    """Polecenie `telemetry`: pokazuje paczkę; z `--send` wysyła ją od razu."""
+    now = local_now(cfg)
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            print(json.dumps(build_packet(cfg, store, now), ensure_ascii=False, indent=2))
+            if not args.send:
+                return EXIT_OK
+            year, week, _ = now.isocalendar()
+            store.set_meta(f"telemetry_sent:{year}-W{week:02d}", "")
+            ok = send_weekly(cfg, store, now, post)
+        finally:
+            store.close()
+    print("wysłane" if ok else "nie wysłano (wyłączona, brak adresu albo błąd)")
+    return EXIT_OK if ok else EXIT_FETCH
 
 
 def cmd_review(cfg: Config, ask: Any = input) -> int:
@@ -349,6 +374,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "fetch":
         return cmd_fetch(args)
+    if args.command == "telemetry-receiver":  # pragma: no cover - serwer
+        setup_logging("INFO")
+        serve(args.port, args.out)
+        return EXIT_OK
     try:
         cfg = load_config(args.config)
     except (ConfigError, ValidationError, ValueError) as e:
@@ -361,6 +390,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run":
             run_service(cfg)
             return EXIT_OK
+        if args.command == "telemetry":
+            return cmd_telemetry(args, cfg)
         if args.command == "review":
             return cmd_review(cfg)
         if args.command == "eval":

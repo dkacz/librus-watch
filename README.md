@@ -12,7 +12,7 @@ Nie dostajesz kopii dziennika. Dostajesz krótką wiadomość wtedy, gdy trzeba 
 
 ## Na jakim etapie jest projekt
 
-_Stan na 2026-11-06 (po etapie E8). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
+_Stan na 2026-11-06 (po etapie E12). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
 
 | Co | Stan |
 |---|---|
@@ -25,6 +25,7 @@ _Stan na 2026-11-06 (po etapie E8). Pełny plan z kryteriami odbioru: [docs/road
 | Działanie w tle: pobieranie co godzinę w aktywnych godzinach, podsumowanie wieczorne i poranne o stałych porach, pilne od razu, potwierdzanie kliknięć w Telegramie w kilka sekund, raport, gdy coś przestaje działać | gotowe (`librus-watch run`) |
 | Uczenie się na ocenach: przyciski w Telegramie, przegląd w terminalu (`librus-watch review`), codzienne sprawdzanie w tle tekstów odrzuconych przez filtr, cotygodniowe pytania i raport, zmiany modelu i promptu sprawdzane na Twoich ocenionych przypadkach (`librus-watch eval`) | gotowe |
 | Kontener na serwer domowy (Podman, Quadlet): bez kodu źródłowego w obrazie, bez uprawnień, system plików tylko do odczytu, stan zachowany po restarcie | gotowe (instrukcja krok po kroku dla rodzica: przy wydaniu) |
+| Telemetria zbiorcza (opt-out): raz w tygodniu same liczby, z odbiornikiem projektu | gotowe |
 | Tydzień próbny i pierwsze wydanie | planowane |
 
 Dziś można uruchomić program jako usługę na własnym komputerze: `librus-watch run` pobiera dane, wysyła powiadomienia o stałych porach i odbiera oceny z Telegrama, aż do zatrzymania (Ctrl+C). Do sprawdzenia bez wysyłki służy `librus-watch run-once --dry-run`. Program pilnuje kont dzieci: najwyżej 12 logowań na dobę, a po odrzuconym logowaniu (np. złe hasło) nie próbuje ponownie do następnego dnia. Kontener i przykład usługi dla Podmana są w `Containerfile` i `deploy/quadlet/`; prosta instrukcja instalacji dla rodzica powstanie przy wydaniu.
@@ -82,7 +83,8 @@ Godziny, kanały i to, kto dostaje które powiadomienia, zmienisz w konfiguracji
 - **Wiadomości oznaczone jako przeczytane.** Librus oznacza wiadomość jako przeczytaną, gdy otworzy ją program. Program pobiera treść każdej wiadomości tylko raz.
 - **Regulamin Librusa.** Automatyczne logowanie do Synergii nie jest oficjalnie wspierane przez Librusa. Program loguje się rzadko (domyślnie co godzinę w ciągu dnia), ma limit nieudanych prób i po błędzie logowania czeka do następnego dnia. Używasz go na własną odpowiedzialność.
 - **Tylko odczyt.** Program niczego w Librusie nie wysyła ani nie zmienia.
-- **Wspólny korpus przykładów: domyślnie włączony (opt-out).** Gdy ta funkcja powstanie (etap E11, jeszcze jej nie ma), program będzie domyślnie i automatycznie wysyłał zanonimizowane przykłady tekstów z ocenami („ten alarm był trafny”, „to przegapiliśmy”), żeby poprawiać działanie u wszystkich użytkowników. Wysyłane są tylko teksty po anonimizacji: imiona, nazwiska, nazwy szkoły, klasy i miejsc, telefony i adresy są zamieniane na znaczniki, daty na określenia względne („jutro”, „czwartek”), a przykład budzący wątpliwości nie jest wysyłany wcale. Nigdy nie są wysyłane surowe wiadomości, loginy ani dane konta. Przed pierwszą wysyłką program wyświetli o tym informację, a każdą wysłaną paczkę zobaczysz w lokalnym dzienniku. **Wyłączenie:** `feedback.share_corpus: false` w `config.yaml`. Telemetria zbiorcza (same liczby, np. ile alarmów było trafnych) będzie działać tylko po włączeniu (opt-in).
+- **Telemetria zbiorcza: domyślnie włączona (opt-out).** Raz w tygodniu program wysyła paczkę samych liczb z ostatnich 7 dni: ile tekstów przeczytał model, ile pozycji wykrył według rodzaju, ile ocen „trafne”, „błędne” i „przegapione”, ile tekstów odrzuciło sito i które moduły Librusa zgłosiły błąd. Każda liczba jest zaokrąglona do 5 po dodaniu szumu, a losowy identyfikator instalacji zmienia się co tydzień. Nie ma w niej treści, imion, nazwy szkoły, klasy ani dziecka, loginów ani adresów kanałów. Przy pierwszym uruchomieniu usługi program wysyła o tym informację. Podgląd dokładnej paczki: `librus-watch telemetry`. **Wyłączenie:** `telemetry.enabled: false` w `config.yaml`.
+- **Wspólny korpus przykładów: domyślnie włączony (opt-out).** Gdy ta funkcja powstanie (etap E11, jeszcze jej nie ma), program będzie domyślnie i automatycznie wysyłał zanonimizowane przykłady tekstów z ocenami („ten alarm był trafny”, „to przegapiliśmy”), żeby poprawiać działanie u wszystkich użytkowników. Wysyłane są tylko teksty po anonimizacji: imiona, nazwiska, nazwy szkoły, klasy i miejsc, telefony i adresy są zamieniane na znaczniki, daty na określenia względne („jutro”, „czwartek”), a przykład budzący wątpliwości nie jest wysyłany wcale. Nigdy nie są wysyłane surowe wiadomości, loginy ani dane konta. Przed pierwszą wysyłką program wyświetli o tym informację, a każdą wysłaną paczkę zobaczysz w lokalnym dzienniku. **Wyłączenie:** `feedback.share_corpus: false` w `config.yaml`.
 
 ## Instalacja
 
