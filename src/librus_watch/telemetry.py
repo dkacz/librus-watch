@@ -11,10 +11,13 @@ i dopisuje je do pliku JSONL.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import secrets
-from collections import Counter
+import threading
+from collections import Counter, deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -164,13 +167,75 @@ def send_weekly(cfg: Config, store: Store, now: datetime, post: Any = None) -> b
     return True
 
 
-def serve(port: int, out: Path) -> None:  # pragma: no cover - pętla serwera, testy wołają handler
+@dataclass
+class Limits:
+    """Ochrona publicznego odbiornika (bez zapisu adresów IP).
+
+    Attributes:
+        per_ip_hour: Paczki na godzinę z jednego adresu (`CF-Connecting-IP`).
+        daily: Paczki na dobę łącznie.
+        max_bytes: Łączny rozmiar plików wyjściowych; powyżej odbiornik nie przyjmuje paczek.
+        seen: Ile ostatnich odcisków paczek pamiętać (odrzucanie powtórek).
+    """
+
+    per_ip_hour: int = 10
+    daily: int = 5000
+    max_bytes: int = 200 * 1024 * 1024
+    seen: int = 20000
+
+
+class Guard:
+    """Liczniki limitów w pamięci procesu (zerowane z upływem godziny i doby)."""
+
+    def __init__(self, limits: Limits, clock: Any = None) -> None:
+        """Tworzy liczniki."""
+        self.limits = limits
+        self.clock = clock or datetime.now
+        self.lock = threading.Lock()
+        self.hour: tuple[str, Counter[str]] = ("", Counter())
+        self.day: tuple[str, int] = ("", 0)
+        self.fps: deque[str] = deque(maxlen=limits.seen)
+        self.fp_set: set[str] = set()
+
+    def admit(self, ip: str) -> bool:
+        """Czy przyjąć kolejną paczkę od adresu (limit godzinowy i dobowy)."""
+        now = self.clock()
+        hour, day = now.strftime("%Y%m%d%H"), now.strftime("%Y%m%d")
+        with self.lock:
+            if self.hour[0] != hour:
+                self.hour = (hour, Counter())
+            if self.day[0] != day:
+                self.day = (day, 0)
+            key = hashlib.sha256(ip.encode()).hexdigest()[:16]
+            if self.hour[1][key] >= self.limits.per_ip_hour or self.day[1] >= self.limits.daily:
+                return False
+            self.hour[1][key] += 1
+            self.day = (day, self.day[1] + 1)
+            return True
+
+    def duplicate(self, body: bytes) -> bool:
+        """Czy ta sama paczka już przyszła (pamięć ostatnich odcisków)."""
+        fp = hashlib.sha256(body).hexdigest()
+        with self.lock:
+            if fp in self.fp_set:
+                return True
+            if len(self.fps) == self.fps.maxlen:
+                self.fp_set.discard(self.fps[0])
+            self.fps.append(fp)
+            self.fp_set.add(fp)
+            return False
+
+
+def serve(port: int, out: Path, limits: Limits | None = None) -> None:  # pragma: no cover
     """Odbiornik paczek: POST /v1/telemetry i /v1/corpus, zapis do JSONL."""
-    ThreadingHTTPServer(("0.0.0.0", port), handler(out)).serve_forever()  # noqa: S104
+    ThreadingHTTPServer(("0.0.0.0", port), handler(out, limits)).serve_forever()  # noqa: S104
 
 
-def handler(out: Path) -> type[BaseHTTPRequestHandler]:
-    """Klasa obsługi żądań odbiornika z plikiem wyjściowym."""
+def handler(
+    out: Path, limits: Limits | None = None, guard: Guard | None = None
+) -> type[BaseHTTPRequestHandler]:
+    """Klasa obsługi żądań odbiornika z plikiem wyjściowym i limitami."""
+    active: Guard = guard or Guard(limits or Limits())
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -185,10 +250,23 @@ def handler(out: Path) -> type[BaseHTTPRequestHandler]:
             if route is None or not 0 < length <= route[1]:
                 self._reply(400)
                 return
+            used = sum(p.stat().st_size for p in (out, out.with_name("corpus.jsonl")) if p.exists())
+            if used >= active.limits.max_bytes:
+                log.warning("odbiornik: limit miejsca na dysku osiągnięty, paczki odrzucane")
+                self._reply(507)
+                return
+            ip = self.headers.get("CF-Connecting-IP") or self.client_address[0]
+            if not active.admit(ip):
+                self._reply(429)
+                return
+            body = self.rfile.read(length)
             try:
-                packet = route[0].model_validate_json(self.rfile.read(length))
+                packet = route[0].model_validate_json(body)
             except ValidationError:
                 self._reply(422)
+                return
+            if active.duplicate(body):
+                self._reply(204)  # powtórka: przyjęta, ale niezapisana
                 return
             with route[2].open("a") as f:
                 f.write(packet.model_dump_json() + "\n")

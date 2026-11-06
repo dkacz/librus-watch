@@ -44,7 +44,7 @@ from librus_watch.secret_env import MissingSecretError, get_secret, setup_loggin
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates
-from librus_watch.telemetry import build_packet, send_weekly, serve
+from librus_watch.telemetry import Limits, build_packet, send_weekly, serve
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +84,9 @@ def _parser() -> argparse.ArgumentParser:
     rec = sub.add_parser("telemetry-receiver", help="odbiornik paczek telemetrii")
     rec.add_argument("--port", type=int, default=8090)
     rec.add_argument("--out", type=Path, default=Path("/data/telemetry.jsonl"))
+    rec.add_argument("--per-ip-hour", type=int, default=10, help="paczki na godzinę z jednego IP")
+    rec.add_argument("--daily", type=int, default=5000, help="paczki na dobę łącznie")
+    rec.add_argument("--max-mb", type=int, default=200, help="łączny rozmiar plików w MB")
     ev = sub.add_parser("eval", help="lokalny zestaw oceny z ocenionych przypadków (bramka)")
     ev.add_argument("--set-baseline", action="store_true", help="zapisz wynik jako odniesienie")
     once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
@@ -397,7 +400,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_fetch(args)
     if args.command == "telemetry-receiver":  # pragma: no cover - serwer
         setup_logging("INFO")
-        serve(args.port, args.out)
+        serve(args.port, args.out, Limits(args.per_ip_hour, args.daily, args.max_mb * 1024 * 1024))
         return EXIT_OK
     try:
         cfg = load_config(args.config)

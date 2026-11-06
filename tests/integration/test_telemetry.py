@@ -146,3 +146,41 @@ def test_cli_show_and_send(
     args = cli._parser().parse_args(["--config", str(config_file), "telemetry", "--send"])
     assert cli.cmd_telemetry(args, with_telemetry(cfg), post=lambda u, d: 204) == 0
     assert "wysłane" in capsys.readouterr().out
+
+
+def test_receiver_limits(fake_librus: FakeLibrus, config_file: Path, tmp_path: Path) -> None:
+    from librus_watch.telemetry import Guard, Limits
+
+    cfg, store = cycle(config_file)
+    packets = [build_packet(cfg, store, NOW) for _ in range(5)]  # różne identyfikatory instalacji
+    store.close()
+    clock = {"now": NOW}
+    guard = Guard(Limits(per_ip_hour=2, daily=3, max_bytes=10_000), clock=lambda: clock["now"])
+    out = tmp_path / "telemetry.jsonl"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler(out, guard=guard))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/telemetry"
+
+    def post(body: dict[str, Any], ip: str) -> int:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            method="POST",
+            headers={"Content-Type": "application/json", "CF-Connecting-IP": ip},
+        )
+        try:
+            return urllib.request.urlopen(req, timeout=5).status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    assert post(packets[0], "1.1.1.1") == 204
+    assert post(packets[0], "2.2.2.2") == 204  # powtórka: przyjęta, niezapisana
+    assert post(packets[1], "1.1.1.1") == 204
+    assert post(packets[2], "1.1.1.1") == 429  # limit na IP w godzinie
+    assert post(packets[3], "3.3.3.3") == 429  # limit dzienny (3)
+    clock["now"] = NOW + timedelta(days=1)
+    assert post(packets[3], "3.3.3.3") == 204
+    assert len(out.read_text().splitlines()) == 3
+    out.write_text("x" * 10_000)
+    assert post(packets[4], "4.4.4.4") == 507  # pełny dysk
+    server.shutdown()
