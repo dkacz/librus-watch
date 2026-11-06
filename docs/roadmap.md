@@ -68,7 +68,7 @@ Każdy etap kończy się testami, `ruff`, `mypy`, hookami `pre-commit` i commite
 
 | Etap | Zakres | Kryterium odbioru |
 |---|---|---|
-| **E0 Fundament** | konfiguracja, sekrety, baza, poprawki obsługi błędów i logów, ADR-011 (poziomy logowania, klasy błędów) | testy regresji dla każdej znalezionej luki |
+| ✅ **E0 Fundament** | konfiguracja, sekrety, baza, poprawki obsługi błędów i logów, ADR-011 (poziomy logowania, klasy błędów) | testy regresji dla każdej znalezionej luki |
 | **E1 Rozpoznanie, część 3** | drugie konto (starsza klasa: zadania domowe, tematy lekcji); czy pobranie wiadomości i ogłoszeń oznacza je jako przeczytane; czas życia sesji | uzupełnione `librus-apix-notes.md`, decyzja o ponownym użyciu sesji |
 | **E2 Warstwa Librus** | `errors.py`, `session.py`, `gateway.py`, `messages.py`; fixtures syntetyczne odtworzone z kształtów | test kontraktu dla każdego modułu; błąd jednego modułu nie zatrzymuje reszty; 403 → `ModuleUnavailable`, zła odpowiedź → `SchemaError`; sesje dwojga dzieci się nie mieszają |
 | **E3 Modele i baza v2** | `TextItem`, `PlanChange`, `FreeDay`, adapter, migracja schematu 1 → 2, blokada jednej instancji | `fetch --dry-run` wypisuje liczby rekordów per moduł, bez treści |
