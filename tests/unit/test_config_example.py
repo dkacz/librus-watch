@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from librus_watch.config import ConfigError, load_config
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_example_config_loads() -> None:

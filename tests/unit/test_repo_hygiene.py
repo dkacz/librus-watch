@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("check", ROOT / "scripts/check_private_paths.py")
 assert _spec and _spec.loader
 check = importlib.util.module_from_spec(_spec)

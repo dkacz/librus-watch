@@ -62,21 +62,32 @@ src/librus_watch/
 
 Wolne teksty dla modelu: wiadomość, ogłoszenie, wpis w terminarzu, zadanie domowe, komentarz do oceny, uwaga, temat lekcji, zebranie, wycieczka.
 
+## Testy
+
+Cały kod ma testy na trzech poziomach. Etap jest zakończony dopiero z testami wymaganymi dla jego zakresu.
+
+| Poziom | Katalog | Co sprawdza | Od etapu |
+|---|---|---|---|
+| Jednostkowe | `tests/unit/` | każda funkcja i gałąź, także ścieżki błędów; pokrycie linii i gałęzi `src/` co najmniej 90% | E0 |
+| Integracyjne | `tests/integration/` | moduły razem: sesja i `librus-apix` na atrapie transportu HTTP Librusa, adapter, prawdziwa baza SQLite, atrapy modelu i Apprise | E3 |
+| End-to-end | `tests/e2e/` | cały cykl przez CLI na lokalnych atrapach serwerów Synergii, API modelu i Apprise: treść powiadomień, stan bazy, brak powtórek, raport o awarii | E7 |
+| Na żywo | znaczniki `llm`, `live` | prawdziwy model i prawdziwe konto; uruchamiane ręcznie | E5, E9 |
+
 ## Etapy
 
-Każdy etap kończy się testami, `ruff`, `mypy`, hookami `pre-commit` i commitem.
+Każdy etap kończy się testami (sekcja „Testy”), `ruff`, `mypy`, hookami `pre-commit` i commitem.
 
 | Etap | Zakres | Kryterium odbioru |
 |---|---|---|
 | ✅ **E0 Fundament** | konfiguracja, sekrety, baza, poprawki obsługi błędów i logów, ADR-011 (poziomy logowania, klasy błędów) | testy regresji dla każdej znalezionej luki |
 | **E1 Rozpoznanie, część 3** | drugie konto (starsza klasa: zadania domowe, tematy lekcji); czy pobranie wiadomości i ogłoszeń oznacza je jako przeczytane; czas życia sesji | uzupełnione `librus-apix-notes.md`, decyzja o ponownym użyciu sesji |
-| **E2 Warstwa Librus** | `errors.py`, `session.py`, `gateway.py`, `messages.py`; fixtures syntetyczne odtworzone z kształtów | test kontraktu dla każdego modułu; błąd jednego modułu nie zatrzymuje reszty; 403 → `ModuleUnavailable`, zła odpowiedź → `SchemaError`; sesje dwojga dzieci się nie mieszają |
-| **E3 Modele i baza v2** | `TextItem`, `PlanChange`, `FreeDay`, adapter, migracja schematu 1 → 2, blokada jednej instancji | `fetch --dry-run` wypisuje liczby rekordów per moduł, bez treści |
-| **E4 Odstępstwa wyliczane** | `baseline.py`, `deviations.py` | scenariusze: odwołana lekcja, zastępstwo, dzień wolny klasy na część lekcji, krótszy dzień, przesunięty sprawdzian, zebranie zdublowane w terminarzu, wpis spoza pobranego zakresu nie znika |
-| **E5 Model** | `prefilter.py`, `extract.py`, prompt po polsku, tryb zapasowy `json_object` | zestaw ok. 25 wymyślonych tekstów ze wszystkich kanałów (zgoda w treści zadania, kartkówka w kategorii „Inne”, termin poprawy w komentarzu do oceny, brak stroju w uwadze, zbiórka w ogłoszeniu, „w każdy wtorek”, tekst bez terminu); `pytest -m llm` na lokalnym modelu: każdy cytat zweryfikowany, zero jednorazowych wydarzeń z „w każdy wtorek”, zmierzona liczba zapytań dziennie po sicie |
-| **E6 Powiadomienia** | `alerts.py`, `notify.py` | cisza w zwykły dzień, wieczorem tylko nietypowe, rano tylko zmiany, od razu pilne, nic w godzinach ciszy; „ZMIANA”; brak powtórek; `test-notify` dociera |
-| **E7 Pętla i polecenia** | `scheduler.py`, `cli.py`, limity prób (ADR-007), raport o awarii, `doctor` | `run-once --dry-run` daje sensowne pozycje, drugi przebieg nic nie powtarza; złe hasło: jedna próba, przerwa do jutra, raport |
-| **E8 Kontener** | `Containerfile` (obraz bazowy po digeście, bez roota, system plików tylko do odczytu), Quadlet, Compose | budowa na serwerze domowym; restart nie gubi stanu; w logach brak sekretów, nazwisk i treści |
+| ✅ **E2 Warstwa Librus** | `errors.py`, `session.py`, `gateway.py`, `messages.py`; fixtures syntetyczne odtworzone z kształtów | test kontraktu dla każdego modułu; błąd jednego modułu nie zatrzymuje reszty; 403 → `ModuleUnavailable`, zła odpowiedź → `SchemaError`; sesje dwojga dzieci się nie mieszają |
+| **E3 Modele i baza v2** | `TextItem`, `PlanChange`, `FreeDay`, adapter, migracja schematu 1 → 2, blokada jednej instancji | `fetch --dry-run` wypisuje liczby rekordów per moduł, bez treści; test integracyjny: logowanie przez prawdziwy `librus-apix` na atrapie transportu HTTP → moduły API → adapter → baza (także migracja 1 → 2 na bazie z danymi) |
+| **E4 Odstępstwa wyliczane** | `baseline.py`, `deviations.py` | scenariusze: odwołana lekcja, zastępstwo, dzień wolny klasy na część lekcji, krótszy dzień, przesunięty sprawdzian, zebranie zdublowane w terminarzu, wpis spoza pobranego zakresu nie znika; testy integracyjne: snapshoty z bazy → odstępstwa przez dwa kolejne cykle |
+| **E5 Model** | `prefilter.py`, `extract.py`, prompt po polsku, tryb zapasowy `json_object` | zestaw ok. 25 wymyślonych tekstów ze wszystkich kanałów (zgoda w treści zadania, kartkówka w kategorii „Inne”, termin poprawy w komentarzu do oceny, brak stroju w uwadze, zbiórka w ogłoszeniu, „w każdy wtorek”, tekst bez terminu); `pytest -m llm` na lokalnym modelu: każdy cytat zweryfikowany, zero jednorazowych wydarzeń z „w każdy wtorek”, zmierzona liczba zapytań dziennie po sicie; testy jednostkowe na atrapie modelu (złe JSON-y, zmyślony cytat, przekroczony limit) i integracyjne z lokalnym serwerem zgodnym z API OpenAI |
+| **E6 Powiadomienia** | `alerts.py`, `notify.py` | cisza w zwykły dzień, wieczorem tylko nietypowe, rano tylko zmiany, od razu pilne, nic w godzinach ciszy; „ZMIANA”; brak powtórek; `test-notify` dociera; testy integracyjne z lokalną atrapą Apprise (treść, escapowanie, routing po tagach) |
+| **E7 Pętla i polecenia** | `scheduler.py`, `cli.py`, limity prób (ADR-007), raport o awarii, `doctor` | `run-once --dry-run` daje sensowne pozycje, drugi przebieg nic nie powtarza; złe hasło: jedna próba, przerwa do jutra, raport; testy end-to-end przez CLI na atrapach serwerów: zwykły dzień (cisza), dzień z odstępstwami, zmiana (ZMIANA), awaria modułu, zły login, restart w trakcie |
+| **E8 Kontener** | `Containerfile` (obraz bazowy po digeście, bez roota, system plików tylko do odczytu), Quadlet, Compose | budowa na serwerze domowym; restart nie gubi stanu; w logach brak sekretów, nazwisk i treści; zestaw end-to-end uruchomiony w zbudowanym kontenerze |
 | **E9 Pilot** | tydzień pracy z `--dry-run` i powiadomieniami do jednej osoby, codzienne porównanie z osią czasu w aplikacji Librus | żadne odstępstwo widoczne na osi czasu nie zostało przegapione, mało fałszywych alarmów |
 | **E10 Wydanie** | README (instalacja krok po kroku, przykłady), uzupełnione ADR | — |
 

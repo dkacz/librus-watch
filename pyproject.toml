@@ -23,6 +23,7 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml",
     "types-requests",
+    "pytest-cov>=7.1.0",
 ]
 
 [build-system]
@@ -38,8 +39,25 @@ exclude-newer = "2026-10-30T00:00:00Z"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["llm: test na żywym endpoincie LLM (wymaga LLM_* w env)"]
-addopts = "-m 'not llm'"
+pythonpath = ["tests"]
+markers = [
+    "unit: test jednostkowy (tests/unit, nadawany automatycznie)",
+    "integration: kilka modułów razem, prawdziwa baza, fałszywy Librus i model (tests/integration)",
+    "e2e: cały cykl przez CLI na lokalnych atrapach Librusa, modelu i Apprise (tests/e2e)",
+    "llm: test na żywym endpoincie LLM (wymaga LLM_* w env)",
+    "live: test na prawdziwym koncie Librusa (ręcznie, wymaga sekretów)",
+]
+addopts = "-m 'not llm and not live' --cov=librus_watch --cov-branch --cov-report=term-missing:skip-covered"
+
+[tool.coverage.run]
+source = ["librus_watch"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
 
 [tool.ruff]
 line-length = 100
