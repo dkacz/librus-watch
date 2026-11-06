@@ -14,18 +14,23 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from librus_watch.config import ConfigError, child_credentials, load_config
+from librus_watch.alerts import Alert, AlertLine, compose, mark_alert_sent, render
+from librus_watch.config import AlertType, Config, ConfigError, Kind, child_credentials, load_config
 from librus_watch.errors import AuthError, TransientError
 from librus_watch.lock import AlreadyRunning, InstanceLock
-from librus_watch.secret_env import MissingSecretError, setup_logging
+from librus_watch.models import Finding, Origin
+from librus_watch.notify import AppriseSender, Sender, send
+from librus_watch.secret_env import MissingSecretError, get_secret, setup_logging
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
+from librus_watch.telegram import chat_ids, http_call, process_updates, send_alert
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +57,97 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="loguj mimo blokady po błędzie logowania i dziennego limitu (ostrożnie)",
     )
+    brief = sub.add_parser("brief", help="złóż i wyślij powiadomienie (wieczór, rano, pilne)")
+    brief.add_argument("kind", choices=[a.value for a in AlertType])
+    brief.add_argument("--dry-run", action="store_true", help="tylko wypisz, nie wysyłaj")
+    sub.add_parser("test-notify", help="wyślij powiadomienie testowe z wymyśloną pozycją")
+    sub.add_parser("telegram-poll", help="odbierz oceny i zgłoszenia z bota Telegrama")
     return parser
+
+
+def _channels(cfg: Config) -> tuple[Sender | None, Any]:
+    """Kanały: Apprise (gdy jest `APPRISE_CONFIG`) i bot Telegrama (gdy jest token)."""
+    sender: Sender | None = None
+    raw = get_secret("APPRISE_CONFIG", required=False)
+    if raw is not None:
+        sender = AppriseSender(raw.get_secret_value())
+    token = get_secret("TELEGRAM_BOT_TOKEN", required=False)
+    bot = (http_call(token.get_secret_value()), chat_ids()) if token is not None else None
+    return sender, bot
+
+
+def _deliver(alert: Alert, cfg: Config, today: date) -> bool:
+    """Wysyła powiadomienie wszystkimi kanałami; `True`, gdy któryś zadziałał."""
+    sender, bot = _channels(cfg)
+    ok = False
+    if sender is not None:
+        ok = send(alert, cfg, sender, today).sent > 0
+    if bot is not None:
+        call, chats = bot
+        ok = send_alert(alert, cfg, call, chats, today) > 0 or ok
+    if sender is None and bot is None:
+        print("brak kanałów: ustaw APPRISE_CONFIG albo TELEGRAM_BOT_TOKEN", file=sys.stderr)
+    return ok
+
+
+def cmd_brief(args: argparse.Namespace, cfg: Config) -> int:
+    """Polecenie `brief`: składa powiadomienie i wysyła je (albo tylko wypisuje)."""
+    now = datetime.now(ZoneInfo(cfg.timezone)).replace(tzinfo=None)
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            alert = compose(cfg, store, now, AlertType(args.kind))
+            if alert is None:
+                print("nic do wysłania")
+                return EXIT_OK
+            if args.dry_run:
+                print(render(alert, cfg, now.date()))
+                return EXIT_OK
+            if not _deliver(alert, cfg, now.date()):
+                return EXIT_FETCH
+            mark_alert_sent(alert, store, now)
+            print(f"wysłane: {len(alert.lines)} pozycji")
+            return EXIT_OK
+        finally:
+            store.close()
+
+
+def cmd_test_notify(cfg: Config) -> int:
+    """Polecenie `test-notify`: powiadomienie z wymyśloną pozycją (nic nie zapisuje)."""
+    today = datetime.now(ZoneInfo(cfg.timezone)).date()
+    child = cfg.children[0].id
+    sample = Finding(
+        child,
+        today + timedelta(days=1),
+        Kind.early_start,
+        "zbiórka (TEST)",
+        Origin.llm,
+        "test:1",
+        at=time(7, 30),
+        quote="Jutro zbiórka o 7:30 (test)",
+    )
+    alert = Alert(
+        AlertType.instant,
+        "librus-watch: powiadomienie testowe",
+        [AlertLine(sample, cfg.alerts.priority_of(sample.kind))],
+    )
+    return EXIT_OK if _deliver(alert, cfg, today) else EXIT_FETCH
+
+
+def cmd_telegram_poll(cfg: Config) -> int:
+    """Polecenie `telegram-poll`: odbiera kliknięcia i `/brak`, zapisuje oceny."""
+    token = get_secret("TELEGRAM_BOT_TOKEN")
+    if token is None:
+        return EXIT_CONFIG
+    now = datetime.now(ZoneInfo(cfg.timezone)).replace(tzinfo=None)
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            n = process_updates(store, http_call(token.get_secret_value()), chat_ids(), now)
+        finally:
+            store.close()
+    print(f"oceny i zgłoszenia: {n}")
+    return EXIT_OK
 
 
 def format_report(r: SyncReport) -> str:
@@ -184,6 +279,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "fetch":
         return cmd_fetch(args)
+    try:
+        cfg = load_config(args.config)
+    except (ConfigError, ValidationError, ValueError) as e:
+        print(f"błąd konfiguracji: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+    setup_logging(cfg.log_level)
+    try:
+        if args.command == "brief":
+            return cmd_brief(args, cfg)
+        if args.command == "test-notify":
+            return cmd_test_notify(cfg)
+        if args.command == "telegram-poll":
+            return cmd_telegram_poll(cfg)
+    except MissingSecretError as e:
+        print(f"błąd sekretów: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+    except AlreadyRunning as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_RUNNING
     return EXIT_CONFIG  # pragma: no cover - argparse wymusza znane polecenie
 
 

@@ -349,7 +349,7 @@ def test_migration_from_v1_keeps_data(tmp_path: Path) -> None:
     )
     db.close()
     s = Store(data)
-    assert s.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+    assert s.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
     m1 = s.texts("ania", ContentType.message)[0]
     assert (m1.key, m1.body) == ("m1", "treść")
     assert [t.key for t in s.texts("ania", ContentType.notice)] == ["a1"]

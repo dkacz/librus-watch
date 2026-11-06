@@ -56,7 +56,7 @@ from librus_watch.models import (
     TextItem,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -190,12 +190,20 @@ CREATE TABLE llm_cache (
 );
 """
 
+_V5_TO_V6 = """
+CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT, rating TEXT NOT NULL,
+    reason TEXT, note TEXT, created_at TEXT NOT NULL
+);
+"""
+
 _MIGRATIONS: dict[int, str] = {
     1: _SCHEMA_V1,
     2: _V1_TO_V2,
     3: _V2_TO_V3,
     4: _V3_TO_V4,
     5: _V4_TO_V5,
+    6: _V5_TO_V6,
 }
 """Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
 
@@ -1000,6 +1008,35 @@ class Store:
             f"llm_usage:{day.isoformat()}",
             json.dumps({"requests": used_r + requests, "tokens": used_t + tokens}),
         )
+
+    def add_feedback(
+        self, identity: str | None, rating: str, now: datetime, reason: str = "", note: str = ""
+    ) -> None:
+        """Zapisuje ocenę (`confirmed`, `wrong`, `missed`, `late`; ADR-016).
+
+        Args:
+            identity: Tożsamość ocenianej pozycji albo `None` (zgłoszenie pominięcia).
+            rating: Rodzaj oceny.
+            now: Moment oceny.
+            reason: Powód (dla `wrong`).
+            note: Opis rodzica (dla `missed`; lokalnie, nigdy w logach).
+        """
+        if identity is not None:
+            last = self.db.execute(
+                "SELECT rating, reason FROM feedback WHERE identity=? ORDER BY id DESC LIMIT 1",
+                (identity,),
+            ).fetchone()
+            if last is not None and (last["rating"], last["reason"]) == (rating, reason):
+                return  # powtórne kliknięcie tego samego przycisku
+        self.db.execute(
+            "INSERT INTO feedback(identity, rating, reason, note, created_at) VALUES(?,?,?,?,?)",
+            (identity, rating, reason, note, now.isoformat()),
+        )
+
+    def feedback(self) -> list[dict[str, str | None]]:
+        """Wszystkie oceny od najstarszej."""
+        rows = self.db.execute("SELECT * FROM feedback ORDER BY id").fetchall()
+        return [{k: r[k] for k in ("identity", "rating", "reason", "note")} for r in rows]
 
     @staticmethod
     def _text(r: sqlite3.Row) -> TextItem:
