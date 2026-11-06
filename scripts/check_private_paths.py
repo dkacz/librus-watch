@@ -48,6 +48,10 @@ def forbidden_term_hits(repo: Path, terms_file: Path) -> list[str]:
     Returns:
         Lista ścieżek plików z trafieniami (bez treści, żeby nie powtarzać
         wyrażeń w logu); pusta, gdy plik nie istnieje lub nic nie znaleziono.
+
+    Raises:
+        RuntimeError: Gdy `git grep` zakończy się błędem (kod > 1). Kod 1
+            oznacza tylko brak trafień; błąd nie może wyglądać jak czysty wynik.
     """
     if not terms_file.is_file():
         return []
@@ -65,6 +69,8 @@ def forbidden_term_hits(repo: Path, terms_file: Path) -> list[str]:
         capture_output=True,
         text=True,
     )
+    if res.returncode > 1:
+        raise RuntimeError(f"git grep zakończył się błędem (kod {res.returncode})")
     return sorted(p for p in res.stdout.splitlines() if p)
 
 

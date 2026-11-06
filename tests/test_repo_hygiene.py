@@ -2,6 +2,8 @@ import importlib.util
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("check", ROOT / "scripts/check_private_paths.py")
 assert _spec and _spec.loader
@@ -37,6 +39,13 @@ def test_forbidden_terms_are_detected(tmp_path: Path) -> None:
     terms.write_text("# komentarz\n\nfoo bar\n")
     assert check.forbidden_term_hits(tmp_path, terms) == ["a.md"]
     assert check.forbidden_term_hits(tmp_path, tmp_path / "brak.txt") == []
+
+
+def test_git_grep_failure_is_not_treated_as_clean(tmp_path: Path) -> None:
+    terms = tmp_path / "terms.txt"
+    terms.write_text("foo\n")
+    with pytest.raises(RuntimeError, match="git grep"):
+        check.forbidden_term_hits(tmp_path, terms)  # tmp_path nie jest repozytorium
 
 
 def test_example_files_are_not_ignored() -> None:

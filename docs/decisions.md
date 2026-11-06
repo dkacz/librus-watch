@@ -83,6 +83,27 @@ Krótki rejestr decyzji: co postanowiliśmy, dlaczego i jakie ma to skutki. Nowe
 
 **Skutki.** Przy dwójce dzieci potrzebne są dwa loginy rodzica. Logowanie e-mailem do Konta LIBRUS nie jest obsługiwane.
 
+## ADR-011: Poziomy logowania i klasy błędów
+
+**Kontekst.** Logi trafiają do journald albo silnika kontenerów i czyta je właściciel serwera, czasem ktoś pomagający przy awarii. Dane pobierane z Librusa dotyczą dzieci, a błędy bibliotek potrafią zawierać adresy z tokenami. Od rodzaju błędu przy pobieraniu zależy, czy ponawiać próbę, czy wstrzymać logowanie (ADR-007).
+
+**Decyzja.** Poziomy logowania:
+- `DEBUG`: liczby i czasy (rekordy per moduł, czas odpowiedzi, liczba zapytań do modelu). Bez treści.
+- `INFO`: początek i koniec cyklu, liczby rekordów, wysłane powiadomienia (typ, id dziecka, liczba pozycji), migracja schematu, porządki w bazie.
+- `WARNING`: ponowienie próby, moduł niedostępny (np. 403), pominięty lub odrzucony tekst (odpowiedź modelu bez pokrycia w treści), zawężone uprawnienia plików.
+- `ERROR`: nieudany cykl, błąd logowania, zmiana kształtu odpowiedzi.
+- `CRITICAL`: nieobsłużony wyjątek kończący program.
+
+Na żadnym poziomie nie logujemy treści wiadomości, ogłoszeń i wpisów, cytatów, imion i nazwisk, loginów ani wartości sekretów. Dziecko identyfikuje `id` z konfiguracji, komunikat Librusa: jego id. Przy błędach logujemy typ wyjątku. Wszystkie logi, także nieobsłużone wyjątki, przechodzą przez redakcję sekretów (ADR-006).
+
+Klasy błędów pobierania:
+- `AuthError`: zły login albo hasło, wygasłe konto. Wstrzymuje próby do następnego dnia i wysyła raport (ADR-007).
+- `TransientError`: limit czasu, błąd sieci, 5xx, prace serwisowe Librusa. Ponowienie z rosnącym odstępem, w limicie prób na dobę.
+- `SchemaError`: odpowiedź o nieoczekiwanym kształcie (zmiana API albo strony). Moduł pomijany w tym cyklu, raport o awarii po pierwszym wystąpieniu, bo samo ponawianie tego nie naprawi.
+- `ModuleUnavailable`: 403 albo 404 dla modułu, którego szkoła nie używa. Ostrzeżenie raz na dobę, bez raportu o awarii.
+
+**Skutki.** Z logów da się odtworzyć przebieg cyklu i przyczynę awarii bez wglądu w dane dzieci. Do diagnozy treści (np. dlaczego model nie znalazł zbiórki) potrzebny jest dostęp do bazy w katalogu danych, a nie do logów.
+
 ## ADR-012: Dane z JSON-owego API Synergii, każdy wolny tekst czyta model
 
 **Kontekst.** Aplikacja mobilna Librus pokazuje na „Osi czasu” wpisy z wielu modułów: wiadomości, ogłoszenia, terminarz, zadania domowe, oceny z komentarzami, uwagi, zmiany w planie. Nauczyciele nie zawsze informują o odstępstwie przewidzianym do tego kanałem: „przynieście zgodę” bywa w treści zadania domowego, kartkówka w terminarzu pod kategorią „Inne”, a zmiana godziny w komentarzu albo w temacie lekcji. Strony HTML Synergii gubią przy tym strukturę (np. opis wpisu w terminarzu rozbity na pola), a zastępstwa i odwołania są tylko adnotacjami tekstowymi.

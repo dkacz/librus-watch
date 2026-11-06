@@ -18,8 +18,10 @@ Tabele:
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -90,6 +92,22 @@ CREATE TABLE IF NOT EXISTS sent (
 """
 
 
+log = logging.getLogger(__name__)
+
+
+def _tighten(path: Path, mode: int) -> None:
+    """Ustawia uprawnienia i ostrzega, gdy wcześniej były luźniejsze.
+
+    Args:
+        path: Plik albo katalog.
+        mode: Docelowe uprawnienia (np. 0o700).
+    """
+    current = stat.S_IMODE(path.stat().st_mode)
+    if current != mode:
+        log.warning("uprawnienia %s: %o -> %o", path.name, current, mode)
+        os.chmod(path, mode)
+
+
 def _t(v: time | None) -> str | None:
     """Godzina jako tekst HH:MM albo `None`."""
     return v.strftime("%H:%M") if v else None
@@ -148,10 +166,14 @@ class Store:
             data_dir: Katalog danych (uprawnienia 0700, baza 0600).
         """
         data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(data_dir, 0o700)
+        _tighten(data_dir, 0o700)
         self.path = data_dir / "librus-watch.db"
+        existed = self.path.exists()
         self.db = sqlite3.connect(self.path, isolation_level=None, check_same_thread=False)
-        os.chmod(self.path, 0o600)
+        if existed:
+            _tighten(self.path, 0o600)
+        else:
+            os.chmod(self.path, 0o600)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
@@ -173,10 +195,15 @@ class Store:
                 if self.db.in_transaction:
                     self.db.execute("ROLLBACK")
                 raise
+            log.info("schemat bazy: wersja %d -> %d", version, SCHEMA_VERSION)
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
         """Transakcja: wszystko albo nic.
+
+        SQLite przy niektórych błędach (np. pełny dysk) sam wycofuje transakcję,
+        dlatego `ROLLBACK` jest wywoływany tylko wtedy, gdy transakcja trwa:
+        inaczej błąd „cannot rollback” przykryłby prawdziwą przyczynę.
 
         Yields:
             Połączenie z otwartą transakcją.
@@ -185,7 +212,8 @@ class Store:
         try:
             yield self.db
         except BaseException:
-            self.db.execute("ROLLBACK")
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
             raise
         self.db.execute("COMMIT")
 
@@ -709,9 +737,14 @@ class Store:
             older_than: Dni wcześniejsze niż ta data są usuwane.
         """
         d = older_than.isoformat()
+        removed = 0
         with self.tx() as db:
-            db.execute("DELETE FROM lessons WHERE day<?", (d,))
-            db.execute("DELETE FROM day_profile WHERE day<?", (d,))
-            db.execute("DELETE FROM entries WHERE day<?", (d,))
-            db.execute("DELETE FROM messages WHERE sent<?", (d,))
-            db.execute("DELETE FROM findings WHERE day<?", (d,))
+            for sql in (
+                "DELETE FROM lessons WHERE day<?",
+                "DELETE FROM day_profile WHERE day<?",
+                "DELETE FROM entries WHERE day<?",
+                "DELETE FROM messages WHERE sent<?",
+                "DELETE FROM findings WHERE day<?",
+            ):
+                removed += db.execute(sql, (d,)).rowcount
+        log.info("porządki: usunięto %d rekordów sprzed %s", removed, d)

@@ -1,3 +1,4 @@
+import logging
 import stat
 from collections.abc import Iterator
 from datetime import date, datetime, time
@@ -102,6 +103,28 @@ def test_transaction_rolls_back_on_error(store: Store) -> None:
         db.execute("INSERT INTO meta VALUES('a', '1')")
         raise RuntimeError
     assert store.get_meta("a") is None
+
+
+def test_original_error_survives_when_sqlite_already_rolled_back(store: Store) -> None:
+    with pytest.raises(ValueError, match="prawdziwa przyczyna"), store.tx() as db:
+        db.execute("ROLLBACK")  # tak kończy się transakcja po np. SQLITE_FULL
+        raise ValueError("prawdziwa przyczyna")
+    assert not store.db.in_transaction
+
+
+def test_open_logs_migration_and_loose_permissions(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="librus_watch.store")
+    data = tmp_path / "data"
+    Store(data).close()
+    assert "schemat bazy: wersja 0 -> 1" in caplog.text
+    assert "uprawnienia" not in caplog.text
+    caplog.clear()
+    (data / "librus-watch.db").chmod(0o644)
+    Store(data).close()
+    assert "uprawnienia librus-watch.db: 644 -> 600" in caplog.text
+    assert "schemat bazy" not in caplog.text
 
 
 def test_meta_upsert(store: Store) -> None:
@@ -246,7 +269,8 @@ def test_sent_tracks_last_version(store: Store) -> None:
     assert store.sent_fp(f.identity) == g.content_fp
 
 
-def test_purge_removes_only_old_data(store: Store) -> None:
+def test_purge_removes_only_old_data(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="librus_watch.store")
     old = date(2025, 9, 1)
     store.save_lessons("ania", {old: [lesson(1, "08:00", "08:45")], MON: []}, NOW)
     store.upsert_entry(Entry("ania", EntrySource.homework, "h1", old, "zadanie"), NOW)
@@ -254,6 +278,7 @@ def test_purge_removes_only_old_data(store: Store) -> None:
     store.add_finding(finding(day=old), NOW)
     store.add_finding(finding(), NOW)
     store.purge(date(2026, 1, 1))
+    assert "usunięto 5 rekordów" in caplog.text
     assert not store.has_timetable("ania", old)
     assert store.has_timetable("ania", MON)
     assert store.entries("ania", EntrySource.homework, active_only=False) == []
