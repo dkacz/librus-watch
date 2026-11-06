@@ -55,6 +55,25 @@ def _short(identity: str) -> str:
     return identity[:16]
 
 
+def send_questions(questions: list[tuple[int, str]], call: Call, chats: list[int]) -> int:
+    """Pytania o kandydatów z przyciskami „Tak” / „Nie” (ocena asynchroniczna)."""
+    sent = 0
+    for chat in chats:
+        for audit_id, text in questions:
+            buttons = [
+                [
+                    {"text": "Tak", "callback_data": f"aud:yes:{audit_id}"},
+                    {"text": "Nie", "callback_data": f"aud:no:{audit_id}"},
+                ]
+            ]
+            call(
+                "sendMessage",
+                {"chat_id": chat, "text": text, "reply_markup": {"inline_keyboard": buttons}},
+            )
+            sent += 1
+    return sent
+
+
 def send_alert(alert: Alert, cfg: Config, call: Call, chats: list[int], today: date) -> int:
     """Wysyła powiadomienie: nagłówek i każda pozycja osobno z przyciskami.
 
@@ -107,7 +126,12 @@ def _edit(call: Call, chat: int, msg: dict[str, Any], text: str, buttons: list[A
 
 
 def process_updates(
-    store: Store, call: Call, chats: list[int], now: datetime, wait: int = 0
+    store: Store,
+    call: Call,
+    chats: list[int],
+    now: datetime,
+    wait: int = 0,
+    link: Callable[[str], str | None] | None = None,
 ) -> int:
     """Odbiera kliknięcia i polecenia, zapisuje oceny.
 
@@ -137,6 +161,18 @@ def process_updates(
                 ]
                 _edit(call, chat, msg, f"{text}\n\nCo było nie tak?", buttons)
                 answer = "Wybierz powód."
+            elif action == "aud":
+                verdict, _, audit_id = rest.partition(":")
+                store.close_audit(int(audit_id), verdict)
+                row = store.db.execute(
+                    "SELECT * FROM audit WHERE id=?", (int(audit_id),)
+                ).fetchone()
+                if row is not None and verdict == "yes":
+                    ref = f"{row['child']}|{row['source']}|{row['key']}"
+                    store.add_feedback(None, "missed", now, note="audyt", text_ref=ref)
+                label = "powinno było przyjść" if verdict == "yes" else "słusznie pominięte"
+                _edit(call, chat, msg, f"{text}\n\nOcena: {label}", None)
+                answer = "Zapisane."
             elif action == "why":
                 reason, _, key = rest.partition(":")
                 store.add_feedback(_identity(store, key), "wrong", now, reason=reason)
@@ -162,7 +198,8 @@ def process_updates(
             command, _, note = str(m.get("text", "")).partition(" ")
             if chat not in chats or command.split("@")[0] != "/brak":
                 continue
-            store.add_feedback(None, "missed", now, note=note.strip())
+            linked = link(note) if link else None
+            store.add_feedback(None, "missed", now, note=note.strip(), text_ref=linked)
             call("sendMessage", {"chat_id": chat, "text": "Zapisane jako pominięte. Dziękuję."})
             done += 1
     if done:

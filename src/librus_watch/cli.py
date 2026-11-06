@@ -16,14 +16,25 @@ import sys
 from collections.abc import Sequence
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from librus_watch.alerts import Alert, AlertLine, compose, mark_alert_sent, render
-from librus_watch.config import AlertType, Config, ConfigError, Kind, child_credentials, load_config
+from librus_watch.config import (
+    AlertType,
+    Config,
+    ConfigError,
+    Kind,
+    child_credentials,
+    llm_api_key,
+    load_config,
+)
 from librus_watch.delivery import deliver
 from librus_watch.errors import AuthError, TransientError
+from librus_watch.extract import make_client
+from librus_watch.feedback import audit_questions, gate, local_eval
 from librus_watch.lock import AlreadyRunning, InstanceLock
 from librus_watch.models import Finding, Origin
 from librus_watch.scheduler import local_now, run_once, run_service
@@ -62,6 +73,9 @@ def _parser() -> argparse.ArgumentParser:
     brief.add_argument("--dry-run", action="store_true", help="tylko wypisz, nie wysyłaj")
     sub.add_parser("test-notify", help="wyślij powiadomienie testowe z wymyśloną pozycją")
     sub.add_parser("run", help="usługa: pobieranie, podsumowania, odbiór kliknięć")
+    sub.add_parser("review", help="przegląd kandydatów i ostatnich pozycji w terminalu")
+    ev = sub.add_parser("eval", help="lokalny zestaw oceny z ocenionych przypadków (bramka)")
+    ev.add_argument("--set-baseline", action="store_true", help="zapisz wynik jako odniesienie")
     once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
     once.add_argument("--dry-run", action="store_true", help="bez zapisu danych i bez wysyłki")
     sub.add_parser("telegram-poll", help="odbierz oceny i zgłoszenia z bota Telegrama")
@@ -105,6 +119,67 @@ def cmd_run_once(args: argparse.Namespace, cfg: Config) -> int:
     for child, error in result.errors.items():
         print(f"{child}: błąd ({error})")
     return EXIT_OK if not result.errors else EXIT_FETCH
+
+
+def cmd_review(cfg: Config, ask: Any = input) -> int:
+    """Polecenie `review`: kandydaci z audytu i ostatnie pozycje, ocena jednym klawiszem."""
+    now = local_now(cfg)
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            for audit_id, question in audit_questions(cfg, store, limit=20):
+                print(f"\n{question}")
+                answer = ask("[t]ak / [n]ie / [p]omiń: ").strip().lower()[:1]
+                if answer in ("t", "n"):
+                    verdict = "yes" if answer == "t" else "no"
+                    store.close_audit(audit_id, verdict)
+                    if verdict == "yes":
+                        row = store.db.execute(
+                            "SELECT * FROM audit WHERE id=?", (audit_id,)
+                        ).fetchone()
+                        ref = f"{row['child']}|{row['source']}|{row['key']}"
+                        store.add_feedback(None, "missed", now, note="review", text_ref=ref)
+            rated = {r["identity"] for r in store.feedback()}
+            today = now.date()
+            for s in store.current_findings(today - timedelta(days=3), today + timedelta(days=14)):
+                f = s.finding
+                if f.identity in rated:
+                    continue
+                print(
+                    f"\n{f.child}, {f.day:%d.%m} {f.kind.value}: {f.what}"
+                    + (f"\n  „{f.quote}”" if f.quote else "")
+                )
+                answer = ask("[t]rafne / [b]łędne / [p]omiń / [k]oniec: ").strip().lower()[:1]
+                if answer == "k":
+                    break
+                if answer == "t":
+                    store.add_feedback(f.identity, "confirmed", now)
+                elif answer == "b":
+                    store.add_feedback(f.identity, "wrong", now, reason="review")
+        finally:
+            store.close()
+    return EXIT_OK
+
+
+def cmd_eval(args: argparse.Namespace, cfg: Config, client: Any = None) -> int:
+    """Polecenie `eval`: wynik na lokalnym zestawie oceny i bramka względem odniesienia."""
+    if client is None:
+        key = llm_api_key(cfg.llm)
+        client = make_client(cfg.llm, key.get_secret_value() if key else None)
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            score = local_eval(cfg, store, client)
+            ok = gate(cfg, store, score, set_baseline=args.set_baseline)
+        finally:
+            store.close()
+    print(
+        f"przypadki {score.cases}: potwierdzone {score.kept}/{score.confirmed}, "
+        f"powtórzone błędy {score.false}, "
+        f"odnalezione pominięcia {score.missed_found}/{score.missed}, "
+        f"wynik {score.score:.3f}, bramka: {'OK' if ok else 'ODRZUCONE'}"
+    )
+    return EXIT_OK if ok else EXIT_FETCH
 
 
 def cmd_test_notify(cfg: Config) -> int:
@@ -286,6 +361,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run":
             run_service(cfg)
             return EXIT_OK
+        if args.command == "review":
+            return cmd_review(cfg)
+        if args.command == "eval":
+            return cmd_eval(args, cfg)
         if args.command == "run-once":
             return cmd_run_once(args, cfg)
         if args.command == "test-notify":

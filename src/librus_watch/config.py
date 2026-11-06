@@ -416,6 +416,21 @@ DEFAULT_PRIORITIES: dict[Kind, Priority] = {
 """Domyślne wagi: wysokie dla tego, co zmienia poranek albo wymaga działania przed wyjściem."""
 
 
+class FeedbackConfig(Strict):
+    """Pętla zwrotna (ADR-016, ADR-018)."""
+
+    audit_daily: Annotated[int, Field(ge=0, le=20)] = 3
+    """Ile odrzuconych przez sito lub przesiew tekstów dziennie czyta model w cieniu."""
+    weekly_report: bool = True
+    """Raport tygodniowy i pytania o kandydatów przez bota (niedziela 18:00)."""
+    examples: Annotated[int, Field(ge=0, le=5)] = 2
+    """Ile ocenionych przykładów tego samego rodzaju dołożyć do promptu (za stałym prefiksem)."""
+    metrics_textfile: Path | None = None
+    """Plik metryk dla `node_exporter` (textfile collector); bez treści."""
+    share_corpus: bool = True
+    """Wspólny korpus (E11, opt-out, ADR-018); do czasu E11 nic nie jest wysyłane."""
+
+
 class Config(Strict):
     """Cała konfiguracja programu."""
 
@@ -432,6 +447,7 @@ class Config(Strict):
     fetch: FetchConfig = FetchConfig()
     llm: LLMConfig = LLMConfig()
     alerts: AlertsConfig = AlertsConfig()
+    feedback: FeedbackConfig = FeedbackConfig()
 
     @model_validator(mode="after")
     def _consistent(self) -> Config:

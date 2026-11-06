@@ -22,14 +22,23 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from librus_watch.alerts import compose, mark_alert_sent
-from librus_watch.config import AlertType, Config, child_credentials
+from librus_watch.config import AlertType, Config, child_credentials, llm_api_key
 from librus_watch.delivery import deliver, deliver_text
 from librus_watch.errors import AuthError, TransientError
+from librus_watch.extract import make_client
+from librus_watch.feedback import (
+    audit_questions,
+    find_candidates,
+    link_missed,
+    shadow_audit,
+    weekly_report,
+    write_metrics,
+)
 from librus_watch.lock import InstanceLock
 from librus_watch.secret_env import get_secret
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
-from librus_watch.telegram import chat_ids, http_call, process_updates
+from librus_watch.telegram import chat_ids, http_call, process_updates, send_questions
 
 log = logging.getLogger(__name__)
 TICK_SECONDS = 60
@@ -129,6 +138,18 @@ def run_once(
             report.sent += 1
     if not dry_run:
         store.set_meta("last_cycle", now.isoformat())
+        find_candidates(cfg, store, now)
+        write_metrics(
+            cfg,
+            store,
+            now,
+            {
+                "children_fetched": len(report.reports),
+                "children_skipped": len(report.skipped),
+                "children_errors": len(report.errors),
+                "findings_new": sum(len(r.findings) for r in report.reports),
+            },
+        )
     log.info(
         "przebieg: %d dzieci pobranych, %d pominiętych, %d błędów, pilnych wysłanych %d",
         len(report.reports),
@@ -185,6 +206,27 @@ def check_failures(cfg: Config, store: Store, now: datetime) -> list[str]:
     return reported
 
 
+def daily_feedback(cfg: Config, store: Store, now: datetime, client: Any = None) -> None:
+    """Audyt w cieniu raz dziennie (po 20:00) i raport tygodniowy w niedzielę o 18:00."""
+    if cfg.llm.enabled and now.hour >= 20 and cfg.feedback.audit_daily:
+        if client is None:
+            key = llm_api_key(cfg.llm)
+            client = make_client(cfg.llm, key.get_secret_value() if key else None)
+        try:
+            shadow_audit(cfg, store, client, now)
+        except Exception as e:  # audyt nie może zatrzymać usługi
+            log.warning("audyt w cieniu nieudany (%s)", type(e).__name__)
+    weekly = f"weekly:{now.date()}"
+    sunday = now.weekday() == 6 and now.hour >= 18
+    if cfg.feedback.weekly_report and sunday and not store.get_meta(weekly):
+        deliver_text(cfg, weekly_report(cfg, store, now))
+        token = get_secret("TELEGRAM_BOT_TOKEN", required=False)
+        questions = audit_questions(cfg, store)
+        if token is not None and questions:
+            send_questions(questions, http_call(token.get_secret_value()), chat_ids())
+        store.set_meta(weekly, now.isoformat())
+
+
 def telegram_loop(
     cfg: Config, stop: threading.Event, call: Callable[..., Any] | None = None
 ) -> None:
@@ -200,7 +242,12 @@ def telegram_loop(
     try:
         while not stop.is_set():
             try:
-                process_updates(store, call, chats, local_now(cfg), wait=TELEGRAM_WAIT)
+                now = local_now(cfg)
+
+                def link(note: str, at: datetime = now) -> str | None:
+                    return link_missed(cfg, store, note, at)
+
+                process_updates(store, call, chats, now, wait=TELEGRAM_WAIT, link=link)
                 errors = 0
             except Exception as e:  # sieć, 409 (drugi odbiorca), 5xx: odczekaj i spróbuj dalej
                 errors += 1
@@ -253,6 +300,7 @@ def run_service(
                 if due and cfg.fetch.active_hours.contains(now.time()):
                     run_once(cfg, store, now)
                 check_failures(cfg, store, now)
+                daily_feedback(cfg, store, now)
                 stop.wait(tick)
         finally:
             stop.set()

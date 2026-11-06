@@ -56,7 +56,7 @@ from librus_watch.models import (
     TextItem,
 )
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -197,6 +197,15 @@ CREATE TABLE feedback (
 );
 """
 
+_V6_TO_V7 = """
+ALTER TABLE feedback ADD COLUMN text_ref TEXT;
+CREATE TABLE audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, child TEXT NOT NULL, source TEXT NOT NULL,
+    key TEXT NOT NULL, reason TEXT NOT NULL, kinds TEXT NOT NULL, created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open', UNIQUE (child, source, key, reason)
+);
+"""
+
 _MIGRATIONS: dict[int, str] = {
     1: _SCHEMA_V1,
     2: _V1_TO_V2,
@@ -204,6 +213,7 @@ _MIGRATIONS: dict[int, str] = {
     4: _V3_TO_V4,
     5: _V4_TO_V5,
     6: _V5_TO_V6,
+    7: _V6_TO_V7,
 }
 """Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
 
@@ -1010,7 +1020,13 @@ class Store:
         )
 
     def add_feedback(
-        self, identity: str | None, rating: str, now: datetime, reason: str = "", note: str = ""
+        self,
+        identity: str | None,
+        rating: str,
+        now: datetime,
+        reason: str = "",
+        note: str = "",
+        text_ref: str | None = None,
     ) -> None:
         """Zapisuje ocenę (`confirmed`, `wrong`, `missed`, `late`; ADR-016).
 
@@ -1020,6 +1036,7 @@ class Store:
             now: Moment oceny.
             reason: Powód (dla `wrong`).
             note: Opis rodzica (dla `missed`; lokalnie, nigdy w logach).
+            text_ref: Tekst, którego dotyczy (`dziecko|źródło|klucz`), jeśli znany.
         """
         if identity is not None:
             last = self.db.execute(
@@ -1029,14 +1046,50 @@ class Store:
             if last is not None and (last["rating"], last["reason"]) == (rating, reason):
                 return  # powtórne kliknięcie tego samego przycisku
         self.db.execute(
-            "INSERT INTO feedback(identity, rating, reason, note, created_at) VALUES(?,?,?,?,?)",
-            (identity, rating, reason, note, now.isoformat()),
+            "INSERT INTO feedback(identity, rating, reason, note, created_at, text_ref) "
+            "VALUES(?,?,?,?,?,?)",
+            (identity, rating, reason, note, now.isoformat(), text_ref),
         )
 
     def feedback(self) -> list[dict[str, str | None]]:
         """Wszystkie oceny od najstarszej."""
         rows = self.db.execute("SELECT * FROM feedback ORDER BY id").fetchall()
-        return [{k: r[k] for k in ("identity", "rating", "reason", "note")} for r in rows]
+        keys = ("identity", "rating", "reason", "note", "text_ref", "created_at")
+        return [{k: r[k] for k in keys} for r in rows]
+
+    def add_audit(
+        self, child: str, source: str, key: str, reason: str, kinds: list[str], now: datetime
+    ) -> bool:
+        """Dodaje kandydata do przeglądu (raz na tekst i powód).
+
+        Args:
+            child: Dziecko.
+            source: Typ tekstu.
+            key: Klucz tekstu.
+            reason: `shadow_sieve`, `shadow_triage`, `disagreement`, `alarm_words`.
+            kinds: Rodzaje pozycji znalezionych w cieniu (bez treści).
+            now: Moment.
+
+        Returns:
+            `True`, gdy kandydat jest nowy.
+        """
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO audit(child, source, key, reason, kinds, created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (child, source, key, reason, ",".join(kinds), now.isoformat()),
+        )
+        return cur.rowcount > 0
+
+    def audits(self, status: str = "open") -> list[dict[str, object]]:
+        """Kandydaci do przeglądu o danym statusie, od najstarszego."""
+        rows = self.db.execute(
+            "SELECT * FROM audit WHERE status=? ORDER BY id", (status,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def close_audit(self, audit_id: int, status: str) -> None:
+        """Zamyka kandydata (`yes`: powinno było przyjść, `no`: słusznie pominięte)."""
+        self.db.execute("UPDATE audit SET status=? WHERE id=?", (status, audit_id))
 
     @staticmethod
     def _text(r: sqlite3.Row) -> TextItem:

@@ -88,7 +88,9 @@ def test_ratings_reasons_missed_and_foreign_chats(store: Store) -> None:
         ]
     )
     assert process_updates(store, bot, [CHAT], NOW) == 5
-    assert store.feedback() == [
+    assert [
+        {k: r[k] for k in ("identity", "rating", "reason", "note")} for r in store.feedback()
+    ] == [
         {"identity": F.identity, "rating": "confirmed", "reason": "", "note": ""},
         {"identity": F.identity, "rating": "wrong", "reason": "day", "note": ""},
         {"identity": None, "rating": "missed", "reason": "", "note": "jutro strój galowy"},

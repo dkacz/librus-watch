@@ -20,6 +20,7 @@ from librus_watch.config import Config, ContentType, Credentials, llm_api_key
 from librus_watch.deviations import day_findings, dedupe, entry_findings, plan_change_findings
 from librus_watch.errors import AuthError, SchemaError, TransientError
 from librus_watch.extract import ChatClient, ReadReport, make_client, pick_model, read_queue
+from librus_watch.feedback import examples_for
 from librus_watch.librus import messages
 from librus_watch.librus.adapter import (
     LOOKUP_MODULES,
@@ -419,7 +420,15 @@ def sync_child(
             llm_client = make_client(cfg.llm, key.get_secret_value() if key else None)
         llm_cfg = cfg.llm.model_copy(update={"model": pick_model(cfg.llm)})
         names = list(store.lookups(child, "users").values()) if llm_cfg.pseudonymize else []
-        report.llm = read_queue(report.reading, store, llm_cfg, now, llm_client, names=names)
+        report.llm = read_queue(
+            report.reading,
+            store,
+            llm_cfg,
+            now,
+            llm_client,
+            names=names,
+            examples=lambda source: examples_for(cfg, store, source),
+        )
         found += report.llm.findings
     report.findings = [f for f in found if store.add_finding(f, now)]
     current_ids = {f.identity for f in detection.findings}

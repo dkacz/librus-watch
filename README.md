@@ -12,7 +12,7 @@ Nie dostajesz kopii dziennika. Dostajesz krótką wiadomość wtedy, gdy trzeba 
 
 ## Na jakim etapie jest projekt
 
-_Stan na 2026-11-06 (po etapie E7). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
+_Stan na 2026-11-06 (po etapie E7a). Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
 
 | Co | Stan |
 |---|---|
@@ -23,6 +23,7 @@ _Stan na 2026-11-06 (po etapie E7). Pełny plan z kryteriami odbioru: [docs/road
 | Czytanie wiadomości, ogłoszeń, zadań i komentarzy przez model językowy (zbiórki, rzeczy do przyniesienia, zgody), z kontrolą, że każda informacja ma dosłowny cytat; wybrany najlepszy model lokalny | gotowe (na zestawie testowym 83% trafień, zero wpadek w pułapkach) |
 | Powiadomienia: wieczorem o jutrze, rano o zmianach, od razu o pilnych, bez powtórek, z „ZMIANA: było… jest…”; Telegram z przyciskami „Trafne” / „Błędne” i poleceniem `/brak`, inne kanały przez Apprise | gotowe (wysyłane ręcznie poleceniem `brief`) |
 | Działanie w tle: pobieranie co godzinę w aktywnych godzinach, podsumowanie wieczorne i poranne o stałych porach, pilne od razu, potwierdzanie kliknięć w Telegramie w kilka sekund, raport, gdy coś przestaje działać | gotowe (`librus-watch run`) |
+| Uczenie się na ocenach: przyciski w Telegramie, przegląd w terminalu (`librus-watch review`), codzienne sprawdzanie w tle tekstów odrzuconych przez filtr, cotygodniowe pytania i raport, zmiany modelu i promptu sprawdzane na Twoich ocenionych przypadkach (`librus-watch eval`) | gotowe |
 | Gotowy kontener i instrukcja instalacji na serwerze domowym | planowane |
 | Tydzień próbny i pierwsze wydanie | planowane |
 

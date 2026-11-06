@@ -106,3 +106,11 @@ alerts:
   # Nadpisanie domyślnych wag rodzajów odstępstw (low | normal | high).
   priorities:
     test: high
+
+# Pętla zwrotna (ADR-016): oceny z Telegrama, audyt w cieniu, lokalny zestaw oceny.
+feedback:
+  audit_daily: 3           # ile odrzuconych tekstów dziennie model czyta w cieniu (0 wyłącza)
+  weekly_report: true      # raport i pytania o kandydatów w niedzielę o 18:00 (bot)
+  examples: 2              # ocenione przykłady dokładane do promptu
+  # metrics_textfile: /var/lib/node_exporter/textfile/librus_watch.prom
+  share_corpus: true       # wspólny korpus (E11, opt-out); do E11 nic nie jest wysyłane
