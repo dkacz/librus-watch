@@ -44,7 +44,7 @@ Zakres spike'u: jedno logowanie, tylko funkcje do odczytu, bez otwierania treśc
 
 ## JSON-owe API Synergii (`/gateway/api/2.0`), spike część 2
 
-Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie sprawdzone moduły odpowiedziały 200 na koncie rodzica (ADR-012). Liczby z jednego konta, klasa 1–3, listopad:
+Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie sprawdzone moduły odpowiedziały 200 na dwóch kontach rodzica (ADR-012). Liczby z konta dziecka z klasy 1–3, listopad; różnice na koncie dziecka ze starszej klasy opisane niżej:
 
 | Moduł | Rekordy | Najważniejsze pola | Uwagi |
 |---|---|---|---|
@@ -63,10 +63,20 @@ Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie
 | `Timetables/OtherActivitiesRegister` | 0 | | Zajęcia dodatkowe; `status: CANCELED` dla odwołanych. |
 | `Subjects`, `Users`, `Classes`, `Me` | słowniki | | Odwołania w rekordach to obiekty `{"Id"}`; łączymy u siebie. |
 
+### Drugie konto (starsza klasa) i oznaczanie jako przeczytane
+
+- `HomeWorkAssignments`: 3 zadania z niepustymi `Topic` i `Text`, pola `Date` (dodania) i `DueDate`. Zadanie widoczne na osi czasu aplikacji jest w API z tym samym terminem: moduł działa, a pusty wynik na pierwszym koncie oznaczał brak zadań u tego dziecka.
+- `Grades/Comments`: 30 komentarzy z tekstem przy 59 ocenach. Najliczniejszy kanał wolnego tekstu poza wiadomościami.
+- `HomeWorks`: 28 wpisów, w tym 25 z przedmiotem. Szkolne wpisy (zebrania, apele) nie mają przedmiotu.
+- `Calendars/Substitutions`: 36 zmian planu (9 odwołań, 27 zastępstw).
+- `Realizations`: 0 rekordów, `ParentTeacherConferences`: 0. Tematów lekcji nie ma na żadnym z dwóch kont, więc temat lekcji to kanał opcjonalny.
+- **Ogłoszenia przez API nie są oznaczane jako przeczytane:** `SchoolNotices.WasRead` zostało `false` dla 17 z 17 po dwóch pobraniach. Na pierwszym koncie wszystkie ogłoszenia były przeczytane po wcześniejszym pobraniu strony HTML `/ogloszenia` przez `librus-apix`. Wniosek: ogłoszenia pobieramy wyłącznie z API, nigdy ze strony HTML.
+- Treść wiadomości: nadal do sprawdzenia przy pierwszej nieprzeczytanej wiadomości.
+
 ## Wnioski dla adaptera
 
 1. Dane strukturalne z API (ADR-012): zmiany planu z `Calendars/Substitutions` i `Timetables`, dni wolne z `ClassFreeDays`/`SchoolFreeDays`, zebrania, wycieczki. Strony HTML tylko tam, gdzie API nie wystarcza (treść wiadomości).
 2. Wolny tekst dla modelu: `HomeWorks.Content`, `HomeWorkAssignments` (temat i treść), `SchoolNotices.Content`, `Grades/Comments.Text`, `Notes.Text`, tematy lekcji (gdy są), wiadomości.
 3. Klucze: `Id` z API (normalizowane do tekstu, bo typy są niespójne); dla wiadomości numeryczne `href`.
 4. W HTML brakujące wartości to `"unknown"`: zamieniać na brak wartości.
-5. Do sprawdzenia przy nowej wiadomości i nowym ogłoszeniu: czy pobranie oznacza je jako przeczytane.
+5. Ogłoszenia tylko z API (`SchoolNotices`), bo strona HTML prawdopodobnie oznacza je jako przeczytane. Do sprawdzenia przy nowej wiadomości: czy pobranie treści oznacza ją jako przeczytaną.
