@@ -380,6 +380,8 @@ def sync_child(
         store.mark_module(child, module, now)
     if snap.lessons is not None:
         store.save_lessons(child, snap.lessons, now)
+    if snap.standing is not None:
+        store.save_standing(child, snap.standing)
     for entry in snap.entries:
         report.count(f"entry:{entry.source.value}", store.upsert_entry(entry, now))
     for entry in detection.removed:

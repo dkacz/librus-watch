@@ -48,7 +48,15 @@ PAYLOADS: dict[str, dict[str, Any]] = {
                 "LessonNo": "1",
                 "DateFrom": "2026-09-01",
                 "DateTo": "2027-06-26",
-            }
+            },
+            {
+                "Id": 9002,
+                "Lesson": {"Id": "41999"},
+                "DayOfTheWeek": "2",
+                "LessonNo": "1",
+                "DateFrom": "2026-09-01",
+                "DateTo": "2027-06-26",
+            },
         ]
     },
     "Calendars/Substitutions": {

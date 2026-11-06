@@ -66,6 +66,8 @@ class FakeLibrus:
 
     accounts: dict[str, str] = field(default_factory=lambda: {"1234567": "haslo-rodzica"})
     overrides: dict[str, int] = field(default_factory=dict)
+    payloads: dict[str, Any] = field(default_factory=dict)
+    """Moduł API -> podmieniona odpowiedź JSON (np. zmieniony terminarz)."""
     """Moduł API -> kod HTTP (np. {"Notes": 403})."""
     message_ids: list[str] = field(default_factory=lambda: ["123", "124"])
     expire_api: bool = False
@@ -163,6 +165,8 @@ class _Adapter(BaseAdapter):
                 return self._json(request, 401, {"Status": "Error", "Code": "Unauthorized"})
             if module in fake.overrides:
                 return self._json(request, fake.overrides[module], {"Status": "Error"})
+            if module in fake.payloads:
+                return self._json(request, 200, fake.payloads[module])
             query = f"?{url.query}" if url.query else ""
             try:
                 return self._json(request, 200, payload(module + query))
