@@ -1,6 +1,6 @@
 # librus-watch
 
-> **Wersja robocza.** Program jest w budowie i jeszcze nie wysyła powiadomień. Ten opis pokazuje, czym będzie. Szczegóły w sekcji [Na jakim etapie jest projekt](#na-jakim-etapie-jest-projekt).
+> **Wersja próbna.** Program działa i wysyła powiadomienia; trwa tydzień próbny na jednej instalacji, a prosta instrukcja instalacji dla innych rodziców powstanie przy pierwszym wydaniu. Szczegóły w sekcji [Na jakim etapie jest projekt](#na-jakim-etapie-jest-projekt).
 
 > Projekt nieoficjalny, niezwiązany z Librus Sp. z o.o. „Librus” i „Synergia” są znakami towarowymi ich właściciela i są tu użyte wyłącznie do opisu, z jakim dziennikiem program współpracuje.
 
