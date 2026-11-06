@@ -186,3 +186,11 @@ Oceny i komentarze do ocen wybiera się niezależnie:
 **Decyzja.** Telegram obsługuje własny moduł bota (Bot API: `sendMessage` z przyciskami inline, odbiór odpowiedzi przez `getUpdates`), od etapu powiadomień (E6). Każda pozycja w powiadomieniu ma przyciski „Trafne” i „Błędne” (z wyborem powodu), a bot przyjmuje polecenie `/brak <opis>`. Bot odpowiada wyłącznie na czatach z listy dozwolonych identyfikatorów; token bota i identyfikatory czatów są sekretami (ADR-006). Apprise zostaje dla pozostałych kanałów, które dostają te same powiadomienia bez przycisków.
 
 **Skutki.** Oceny są zbierane od pierwszego powiadomienia, a pilot (E9) ma pełną pętlę. Dochodzi kod do utrzymania (odbieranie aktualizacji, ponowienia, limity Telegrama) i jeden token, którego nie wolno używać z dwóch miejsc naraz (konflikt odbioru aktualizacji).
+
+## ADR-020: Pobieranie treści wiadomości oznacza je jako przeczytane i to akceptujemy
+
+**Kontekst.** Otwarcie wiadomości przez program oznacza ją w Librusie jako przeczytaną, tak jak w aplikacji, a sposobu na cofnięcie nie znamy. Przeczytana wiadomość nie znika jednak z listy w aplikacji, więc rodzic nadal ją widzi.
+
+**Decyzja.** Program domyślnie pobiera treść nowych wiadomości (`fetch.message_bodies: true`), tylko z ostatnich `message_body_days` dni i raz na wiadomość. Lista i licznik nieprzeczytanych (bez skutków ubocznych) służą do wykrywania nowych. README mówi o tym wprost; kto woli zachować stan „nieprzeczytana”, wyłącza pobieranie treści.
+
+**Skutki.** Wiadomości ze szkoły są czytane bez udziału rodzica, kosztem utraty oznaczenia „nieprzeczytana” w Librusie.

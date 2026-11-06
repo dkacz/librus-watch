@@ -72,7 +72,7 @@ Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie
 - `Calendars/Substitutions`: 36 zmian planu (9 odwołań, 27 zastępstw).
 - `Realizations`: 0 rekordów, `ParentTeacherConferences`: 0. Tematów lekcji nie ma na żadnym z dwóch kont, więc temat lekcji to kanał opcjonalny.
 - **Ogłoszenia przez API nie są oznaczane jako przeczytane:** `SchoolNotices.WasRead` zostało `false` dla 17 z 17 po dwóch pobraniach. Na pierwszym koncie wszystkie ogłoszenia były przeczytane po wcześniejszym pobraniu strony HTML `/ogloszenia` przez `librus-apix`. Wniosek: ogłoszenia pobieramy wyłącznie z API, nigdy ze strony HTML.
-- Treść wiadomości: nadal do sprawdzenia przy pierwszej nieprzeczytanej wiadomości.
+- Treść wiadomości: według nieoficjalnej dokumentacji API wiadomości (`wiadomosci.librus.pl/api`) lista i licznik nieprzeczytanych niczego nie oznaczają, a otwarcie wiadomości oznacza ją jako przeczytaną; sposobu na cofnięcie dokumentacja nie opisuje. Przeczytana wiadomość zostaje na liście w aplikacji, więc to akceptowalne (pobieramy treść tylko z ostatnich 14 dni).
 
 ## Wnioski dla adaptera
 
