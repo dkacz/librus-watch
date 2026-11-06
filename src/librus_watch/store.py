@@ -140,27 +140,39 @@ class Store:
     def __init__(self, data_dir: Path) -> None:
         """Otwiera (lub tworzy) bazę w katalogu danych z bezpiecznymi uprawnieniami.
 
+        Uprawnienia są ustawiane przy każdym otwarciu, także dla istniejącego
+        katalogu i bazy, bo wolumen mógł zostać utworzony z luźniejszymi.
+        Pliki `-wal` i `-shm` SQLite tworzy z uprawnieniami pliku bazy.
+
         Args:
-            data_dir: Katalog danych. Jest tworzony z uprawnieniami 0700.
+            data_dir: Katalog danych (uprawnienia 0700, baza 0600).
         """
         data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(data_dir, 0o700)
         self.path = data_dir / "librus-watch.db"
-        fresh = not self.path.exists()
         self.db = sqlite3.connect(self.path, isolation_level=None, check_same_thread=False)
-        if fresh:
-            os.chmod(self.path, 0o600)
+        os.chmod(self.path, 0o600)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
         self._migrate()
 
     def _migrate(self) -> None:
-        """Tworzy schemat i podbija wersję (kolejne migracje dopisujemy tutaj)."""
+        """Tworzy schemat i podbija wersję (kolejne migracje dopisujemy tutaj).
+
+        `executescript` zatwierdza otwartą transakcję przed startem, dlatego
+        transakcja jest częścią samego skryptu, a nie `tx()`.
+        """
         version = int(self.db.execute("PRAGMA user_version").fetchone()[0])
         if version < SCHEMA_VERSION:
-            with self.tx():
-                self.db.executescript(_SCHEMA)
-                self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            try:
+                self.db.executescript(
+                    f"BEGIN IMMEDIATE;{_SCHEMA}PRAGMA user_version={SCHEMA_VERSION};COMMIT;"
+                )
+            except BaseException:
+                if self.db.in_transaction:
+                    self.db.execute("ROLLBACK")
+                raise
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
