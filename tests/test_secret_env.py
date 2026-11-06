@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -104,7 +105,54 @@ def test_setup_logging_redacts_and_silences_http_libs(
     setup_logging("DEBUG")
     logging.getLogger("librus_watch").info("uzywam %s", "haslo-dziecka")
     logging.getLogger("urllib3").info("GET /?pass=haslo-dziecka")
-    err = capsys.readouterr().err
-    assert "haslo-dziecka" not in err
-    assert f"uzywam {REDACTED}" in err
-    assert "GET /" not in err
+    out = capsys.readouterr().out
+    assert "haslo-dziecka" not in out
+    assert f"uzywam {REDACTED}" in out
+    assert "GET /" not in out
+
+
+def test_unreadable_secret_file_is_missing_secret_even_if_optional(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("X_FILE", str(tmp_path / "nie-ma"))
+    with pytest.raises(MissingSecretError, match="X_FILE"):
+        get_secret("X", required=False)
+    monkeypatch.setenv("X_FILE", str(tmp_path))  # katalog zamiast pliku
+    with pytest.raises(MissingSecretError):
+        get_secret("X")
+
+
+def test_session_key_parts_are_redacted() -> None:
+    dz, sdz = "a1b2c3d4e5f6g7h8i9j0k1l2", "z9y8x7w6v5u4t3s2r1q0"
+    secret_env.register_all(f"{dz}:{sdz}")
+    out = redact(f"Cookie: DZIENNIKSID={dz}; SDZIENNIKSID={sdz}")
+    assert dz not in out and sdz not in out
+
+
+def test_bad_log_arguments_do_not_crash(capsys: pytest.CaptureFixture[str]) -> None:
+    secret_env.register("haslo-dziecka")
+    setup_logging("INFO")
+    logging.getLogger("librus_watch").info("dwa %s %s", "haslo-dziecka")
+    out = capsys.readouterr().out
+    assert "błąd formatowania" in out
+    assert "haslo-dziecka" not in out
+
+
+def test_uncaught_exception_goes_through_redaction(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+    secret_env.register("haslo-dziecka")
+    setup_logging("INFO")
+    try:
+        raise RuntimeError("tgram failed for haslo-dziecka")
+    except RuntimeError as e:
+        sys.excepthook(type(e), e, e.__traceback__)
+    t = threading.Thread(target=lambda: (_ for _ in ()).throw(ValueError("haslo-dziecka")))
+    t.start()
+    t.join()
+    captured = capsys.readouterr()
+    assert captured.out.count("CRITICAL") == 2
+    assert "RuntimeError" in captured.out and "ValueError" in captured.out
+    assert "haslo-dziecka" not in captured.out + captured.err

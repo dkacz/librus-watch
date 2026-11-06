@@ -27,7 +27,7 @@ from librus_apix import announcements, homework, messages, schedule, timetable
 from librus_apix.client import Client, Token
 from requests.cookies import RequestsCookieJar
 
-from librus_watch.secret_env import get_secret, setup_logging
+from librus_watch.secret_env import get_secret, register_all, setup_logging
 
 TIMEOUT = 30
 _CAPWORD = re.compile(r"\b[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż.-]*")
@@ -83,22 +83,38 @@ def summarize(name: str, items: list[Any]) -> None:
         print("  ", json.dumps(mask(it), ensure_ascii=False)[:250])
 
 
+def login(child_id: str) -> Client:
+    """Loguje się raz kontem dziecka i rejestruje ciasteczka sesji do redakcji logów.
+
+    Każdy klient dostaje własny pojemnik na ciasteczka (domyślny w
+    `librus-apix` jest współdzielony), a każde żądanie ma limit czasu.
+
+    Args:
+        child_id: Id dziecka; sekrety `LIBRUS_<ID>_LOGIN` i `LIBRUS_<ID>_PASSWORD`.
+
+    Returns:
+        Zalogowany klient.
+    """
+    prefix = f"LIBRUS_{child_id.upper()}"
+    user = get_secret(f"{prefix}_LOGIN")
+    password = get_secret(f"{prefix}_PASSWORD")
+    if user is None or password is None:  # pragma: no cover - get_secret już zgłasza błąd
+        raise SystemExit("brak loginu lub hasła")
+    client = Client(Token(), extra_cookies=RequestsCookieJar())
+    client._session.request = partial(client._session.request, timeout=TIMEOUT)
+    token = client.get_token(user.get_secret_value(), password.get_secret_value())
+    register_all(token.API_Key)
+    print("logowanie: OK")
+    return client
+
+
 def run(child_id: str) -> None:
     """Loguje się raz i pobiera sekcje potrzebne programowi.
 
     Args:
         child_id: Id dziecka; sekrety `LIBRUS_<ID>_LOGIN` i `LIBRUS_<ID>_PASSWORD`.
     """
-    prefix = f"LIBRUS_{child_id.upper()}"
-    login = get_secret(f"{prefix}_LOGIN")
-    password = get_secret(f"{prefix}_PASSWORD")
-    if login is None or password is None:  # pragma: no cover - get_secret już zgłasza błąd
-        raise SystemExit("brak loginu lub hasła")
-
-    client = Client(Token(), extra_cookies=RequestsCookieJar())
-    client._session.request = partial(client._session.request, timeout=TIMEOUT)
-    client.get_token(login.get_secret_value(), password.get_secret_value())
-    print("logowanie: OK")
+    client = login(child_id)
 
     today = date.today()
     monday = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time())

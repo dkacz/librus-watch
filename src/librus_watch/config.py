@@ -11,6 +11,7 @@ Wzorzec wszystkich opcji z komentarzami: `config.example.yaml`.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import time
 from enum import StrEnum
@@ -24,16 +25,25 @@ from librus_watch.secret_env import MissingSecretError, get_secret
 
 _FORBIDDEN_KEY = re.compile(r"pass|secret|token|api_?key|login|credential", re.IGNORECASE)
 _ALLOWED_KEYS = frozenset({"api_key_required"})
+log = logging.getLogger(__name__)
 _LOCAL_HTTP = re.compile(
     r"^http://(localhost|127\.0\.0\.1|\[::1\]|[\w-]+|[\w.-]+\.(lan|local|internal|home\.arpa)"
     r"|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?(/|$)"
 )
 
 
-class Strict(BaseModel):
-    """Baza modeli konfiguracji: nieznane pola są błędem, obiekty niezmienne."""
+class ConfigError(ValueError):
+    """Konfiguracji nie da się wczytać; komunikat nie zawiera wartości z pliku."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+
+class Strict(BaseModel):
+    """Baza modeli konfiguracji: nieznane pola są błędem, obiekty niezmienne.
+
+    `hide_input_in_errors` usuwa wpisane wartości z komunikatów walidacji, bo
+    mogą zawierać omyłkowo wklejony sekret (np. klucz w `base_url`).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
 class Priority(StrEnum):
@@ -383,11 +393,24 @@ def load_config(path: Path) -> Config:
         Zwalidowana konfiguracja.
 
     Raises:
+        ConfigError: Gdy pliku nie da się odczytać albo YAML jest błędny
+            (komunikat podaje tylko numer linii, bez jej treści).
         ValueError: Przy kluczu wyglądającym na sekret.
-        pydantic.ValidationError: Przy nieznanych polach lub złych wartościach.
+        pydantic.ValidationError: Przy nieznanych polach lub złych wartościach
+            (bez wpisanych wartości, patrz `Strict`).
     """
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except OSError as e:
+        raise ConfigError(f"nie można odczytać {path} ({type(e).__name__})") from None
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f", linia {mark.line + 1}" if mark else ""
+        raise ConfigError(f"błędny YAML w {path}{where}") from None
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: oczekiwano mapy klucz: wartość na najwyższym poziomie")
     _reject_secret_keys(raw)
+    log.debug("konfiguracja wczytana z %s", path)
     return Config.model_validate(raw)
 
 

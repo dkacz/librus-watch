@@ -42,10 +42,31 @@ Zakres spike'u: jedno logowanie, tylko funkcje do odczytu, bez otwierania treśc
 - Lista nie zawiera treści. Treść daje `message_content`, którego spike nie wywołał.
 - **Do sprawdzenia:** czy `message_content` oznacza wiadomość jako przeczytaną. W chwili spike'u wszystkie wiadomości na 1. stronie były przeczytane, więc test wymaga nowej, nieprzeczytanej wiadomości.
 
+## JSON-owe API Synergii (`/gateway/api/2.0`), spike część 2
+
+Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie sprawdzone moduły odpowiedziały 200 na koncie rodzica (ADR-012). Liczby z jednego konta, klasa 1–3, listopad:
+
+| Moduł | Rekordy | Najważniejsze pola | Uwagi |
+|---|---|---|---|
+| `Timetables?weekStart=` | 23–33 lekcje / tydzień | `LessonNo`, `HourFrom`, `HourTo`, `IsCanceled`, `IsSubstitutionClass`, `SubstitutionNote`, `Subject.Id`, `Teacher.Id` | Słownik data → sloty → lekcje. Dzień wolny szkoły **nie** ustawia `IsCanceled`. |
+| `Calendars/Substitutions` | 31 | `OrgDate`, `OrgLessonNo`, `IsCancelled`, `IsShifted`, `Date`, `LessonNo`, `Subject`, `Teacher` | Cała historia zmian planu od początku roku (10 odwołań, 21 zastępstw). Źródło zmian planu zamiast adnotacji HTML. |
+| `ClassFreeDays` | 45 (3 tej klasy) | `Class.Id`, `Type.Id`, `DateFrom`, `DateTo`, `LessonNoFrom`, `LessonNoTo` | Wszystkie klasy szkoły; filtrować po `Classes.Class.Id`. |
+| `SchoolFreeDays` | 1 | `Name`, `DateFrom`, `DateTo` | |
+| `HomeWorks` (terminarz) | 10 | `Date`, `TimeFrom`, `TimeTo`, `LessonNo`, `Category.Id`, `Content`, `AddDate` | `Content` w całości (w HTML opis był rozbity na klucze). Kategorie w `HomeWorks/Categories` (22). |
+| `HomeWorkAssignments` | 0 | | Moduł działa, brak zadań u tego dziecka. |
+| `SchoolNotices` | 17 | `Subject`, `Content`, `StartDate`, `EndDate`, `CreationDate`, `WasRead`, `AddedBy.Id` | Wszystkie miały `WasRead=true`. Do sprawdzenia, czy pobranie oznacza je jako przeczytane. |
+| `Notes` (uwagi) | 0 | | Moduł działa. |
+| `Grades` + `Grades/Comments` | 2 + 2 | `Comments` (lista id) → `Text` | Komentarze do ocen mają tekst: kanał, którym może przyjść informacja. |
+| `Realizations` | 122 | `Date`, `LessonNo`, `Lesson.Id`, `IsTrip` | **Bez pola `Topic`** na tym koncie (możliwe, że w klasach 1–3 tematy są gdzie indziej). |
+| `ParentTeacherConferences` | 1 | `Date`, `Time`, `Topic`, `Name`, `Room` | Ten sam termin bywa też w `HomeWorks`: deduplikacja po dacie i godzinie. |
+| `SchoolTrips` | 3 | `destination`, `route`, `locomotion`, `termFrom`, `termTo` | Pola małymi literami (camelCase). |
+| `Timetables/OtherActivitiesRegister` | 0 | | Zajęcia dodatkowe; `status: CANCELED` dla odwołanych. |
+| `Subjects`, `Users`, `Classes`, `Me` | słowniki | | Odwołania w rekordach to obiekty `{"Id"}`; łączymy u siebie. |
+
 ## Wnioski dla adaptera
 
-1. Plan lekcji: odstępstwa z `info`, nie z braku lekcji.
-2. Terminarz to drugie (obok wiadomości) źródło treści dla modelu, a nie tylko daty.
-3. Klucze: `href` wiadomości i wpisów terminarza, gdy jest; skróty pól, gdy nie ma.
-4. `"unknown"` zamieniać na brak wartości.
-5. Ogłoszenia filtrować przed modelem po dacie (tylko nowe).
+1. Dane strukturalne z API (ADR-012): zmiany planu z `Calendars/Substitutions` i `Timetables`, dni wolne z `ClassFreeDays`/`SchoolFreeDays`, zebrania, wycieczki. Strony HTML tylko tam, gdzie API nie wystarcza (treść wiadomości).
+2. Wolny tekst dla modelu: `HomeWorks.Content`, `HomeWorkAssignments` (temat i treść), `SchoolNotices.Content`, `Grades/Comments.Text`, `Notes.Text`, tematy lekcji (gdy są), wiadomości.
+3. Klucze: `Id` z API (normalizowane do tekstu, bo typy są niespójne); dla wiadomości numeryczne `href`.
+4. W HTML brakujące wartości to `"unknown"`: zamieniać na brak wartości.
+5. Do sprawdzenia przy nowej wiadomości i nowym ogłoszeniu: czy pobranie oznacza je jako przeczytane.

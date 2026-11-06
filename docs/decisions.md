@@ -82,3 +82,11 @@ Krótki rejestr decyzji: co postanowiliśmy, dlaczego i jakie ma to skutki. Nowe
 **Decyzja.** Program loguje się loginem rodzica w Synergii. Każde dziecko to osobny wpis w `children` z własnymi sekretami `LIBRUS_<ID>_LOGIN` i `LIBRUS_<ID>_PASSWORD`.
 
 **Skutki.** Przy dwójce dzieci potrzebne są dwa loginy rodzica. Logowanie e-mailem do Konta LIBRUS nie jest obsługiwane.
+
+## ADR-012: Dane z JSON-owego API Synergii, każdy wolny tekst czyta model
+
+**Kontekst.** Aplikacja mobilna Librus pokazuje na „Osi czasu” wpisy z wielu modułów: wiadomości, ogłoszenia, terminarz, zadania domowe, oceny z komentarzami, uwagi, zmiany w planie. Nauczyciele nie zawsze informują o odstępstwie przewidzianym do tego kanałem: „przynieście zgodę” bywa w treści zadania domowego, kartkówka w terminarzu pod kategorią „Inne”, a zmiana godziny w komentarzu albo w temacie lekcji. Strony HTML Synergii gubią przy tym strukturę (np. opis wpisu w terminarzu rozbity na pola), a zastępstwa i odwołania są tylko adnotacjami tekstowymi.
+
+**Decyzja.** Dane pobieramy z JSON-owego API, z którego korzysta Synergia (`/gateway/api/2.0`), w tej samej sesji co logowanie. Moduły: plan lekcji i historia zmian planu, dni wolne klasy i szkoły, terminarz, zadania domowe, ogłoszenia, uwagi, oceny z komentarzami, tematy lekcji, zebrania, wycieczki i zajęcia dodatkowe. Pola strukturalne (odwołanie, zastępstwo, dzień wolny, termin zebrania) program porównuje sam. Każde pole z wolnym tekstem, niezależnie od modułu i kategorii, przechodzi przez model na tych samych zasadach co wiadomości (ADR-003). Przed modelem działa tanie sito: tylko nowe lub zmienione wpisy. Biblioteka `librus-apix` zostaje do logowania i treści wiadomości.
+
+**Skutki.** Odstępstwo zostanie zauważone niezależnie od tego, gdzie nauczyciel je wpisał. Zapytań do modelu jest więcej (komentarze, tematy lekcji), więc sito i limit znaków na wpis są wymagane. API jest nieoficjalne: każdy moduł pobieramy osobno, a błąd jednego (np. 403, gdy szkoła nie używa modułu) nie zatrzymuje pozostałych i trafia do raportu jako ostrzeżenie, nie awaria.
