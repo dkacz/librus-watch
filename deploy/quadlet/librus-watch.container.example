@@ -18,6 +18,8 @@ Exec=run
 Network=llm-net
 # sieć z odbiornikiem telemetrii i korpusu (librus-telemetry.container)
 Network=librus-net
+# webhook WhatsAppa (ADR-024): tylko loopback hosta, tunel kieruje /v1/whatsapp na ten port
+PublishPort=127.0.0.1:8091:8091
 UserNS=keep-id:uid=10001,gid=10001
 ReadOnly=true
 Tmpfs=/tmp

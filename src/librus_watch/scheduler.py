@@ -41,6 +41,7 @@ from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates, send_questions
 from librus_watch.telemetry import note_module_errors, send_weekly
+from librus_watch.whatsapp import serve_webhook
 
 log = logging.getLogger(__name__)
 TICK_SECONDS = 60
@@ -286,8 +287,10 @@ def run_service(
         store = Store(cfg.data_dir)
         store.set_meta("service_started", clock().isoformat())
         bot = threading.Thread(target=telegram_loop, args=(cfg, stop), daemon=True)
+        hook = threading.Thread(target=serve_webhook, args=(cfg, stop, clock), daemon=True)
         if start_telegram:
             bot.start()
+            hook.start()
         log.info("usługa: start, %d dzieci", len(cfg.children))
         if cfg.telemetry.enabled and not store.get_meta("telemetry_notice"):
             deliver_text(

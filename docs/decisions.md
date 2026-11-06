@@ -226,3 +226,11 @@ Przesiew stosowany do wszystkich rodzajów tekstów gubił na każdym modelu od 
 **Decyzja.** Korpus idzie tym samym kanałem co telemetria (ADR-022): POST JSON na `feedback.corpus_endpoint`, raz dziennie, do tego samego odbiornika (`librus-watch telemetry-receiver`, ścieżka `/v1/corpus`). Odbiornik przyjmuje tylko paczki zgodne ze schematem (rodzaj tekstu, ocena, tekst po anonimizacji do 1500 znaków, oczekiwane pozycje z dniem względnym), do 128 KB, i dopisuje je do `corpus.jsonl`. Przykład wychodzi raz, a program zapisuje dokładnie wysłaną paczkę w lokalnym `corpus_sent.jsonl`. Wysyłka ruszy dopiero po informacji przy pierwszym uruchomieniu. Uwierzytelnienie paczek i limity zapytań dochodzą razem z publicznym adresem odbiornika (tunel z HTTPS).
 
 **Skutki.** Jeden odbiornik i jeden format dla obu strumieni. Dopóki odbiornik jest tylko w sieci kontenerów, zbiera dane z tej jednej instalacji; publiczne udostępnienie wymaga przeglądu prawnego (ADR-018).
+
+## ADR-024: Bot WhatsAppa przez oficjalne Cloud API, obok Telegrama
+
+**Kontekst.** Część rodziców używa WhatsAppa, nie Telegrama. Nieoficjalne biblioteki udające aplikację WhatsApp łamią regulamin i grożą blokadą numeru.
+
+**Decyzja.** WhatsApp działa wyłącznie przez WhatsApp Business Platform (Cloud API). Każda pozycja powiadomienia wychodzi jako zatwierdzony szablon z przyciskami szybkiej odpowiedzi („Trafne”, „Błędne”), których ładunek niesie skrót tożsamości pozycji, tak jak w Telegramie (ADR-019). Po „Błędne” program wysyła listę powodów (w oknie 24 h, bez szablonu). Wiadomość rodzica zaczynająca się od „brak” jest zgłoszeniem pominięcia. Odpowiedzi przychodzą na webhook usługi (publiczny HTTPS przez tunel), sprawdzany podpisem `X-Hub-Signature-256`; program odpowiada tylko numerom z listy dozwolonych. Token dostępu, identyfikator numeru, sekret aplikacji i token weryfikacji webhooka są sekretami.
+
+**Skutki.** Rodzic może wybrać kanał. Wiadomości szablonowe są płatne (za każdą pozycję z przyciskami), bot wymaga konta Meta Business i osobnego numeru, a szablon musi przejść zatwierdzenie Mety.

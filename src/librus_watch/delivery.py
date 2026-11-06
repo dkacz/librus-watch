@@ -7,6 +7,7 @@ import sys
 from datetime import date
 from typing import Any
 
+from librus_watch import whatsapp
 from librus_watch.alerts import Alert
 from librus_watch.config import Config
 from librus_watch.notify import AppriseSender, Sender, send
@@ -36,7 +37,13 @@ def deliver(alert: Alert, cfg: Config, today: date) -> bool:
     if bot is not None:
         call, chats = bot
         ok = send_alert(alert, cfg, call, chats, today) > 0 or ok
-    if sender is None and bot is None:
+    wa = whatsapp.graph_call(cfg)
+    if wa is not None:
+        try:
+            ok = whatsapp.send_alert(alert, cfg, wa, whatsapp.recipients(), today) > 0 or ok
+        except Exception as e:
+            log.warning("WhatsApp nieudany (%s)", type(e).__name__)
+    if sender is None and bot is None and wa is None:
         print("brak kanałów: ustaw APPRISE_CONFIG albo TELEGRAM_BOT_TOKEN", file=sys.stderr)
     return ok
 
@@ -59,4 +66,10 @@ def deliver_text(cfg: Config, text: str) -> bool:
                 ok = True
             except Exception as e:
                 log.warning("raport: Telegram nieudany (%s)", type(e).__name__)
+    wa = whatsapp.graph_call(cfg)
+    if wa is not None:
+        try:
+            ok = whatsapp.send_info(text, cfg, wa, whatsapp.recipients()) > 0 or ok
+        except Exception as e:
+            log.warning("raport: WhatsApp nieudany (%s)", type(e).__name__)
     return ok

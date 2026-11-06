@@ -416,6 +416,18 @@ DEFAULT_PRIORITIES: dict[Kind, Priority] = {
 """Domyślne wagi: wysokie dla tego, co zmienia poranek albo wymaga działania przed wyjściem."""
 
 
+class WhatsAppConfig(Strict):
+    """Bot WhatsAppa (ADR-024); działa, gdy są sekrety `WHATSAPP_*`."""
+
+    template: str = "librus_pozycja"
+    """Szablon pozycji: 3 parametry treści i 2 przyciski szybkiej odpowiedzi."""
+    info_template: str = "librus_info"
+    """Szablon komunikatu: 1 parametr treści."""
+    language: str = "pl"
+    api_version: str = "v21.0"
+    webhook_port: Annotated[int, Field(ge=1024, le=65535)] = 8091
+
+
 class TelemetryConfig(Strict):
     """Telemetria zbiorcza (ADR-022, opt-out)."""
 
@@ -460,6 +472,7 @@ class Config(Strict):
     alerts: AlertsConfig = AlertsConfig()
     feedback: FeedbackConfig = FeedbackConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    whatsapp: WhatsAppConfig = WhatsAppConfig()
 
     @model_validator(mode="after")
     def _consistent(self) -> Config:
