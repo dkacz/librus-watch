@@ -121,3 +121,9 @@ feedback:
 telemetry:
   enabled: true            # false wyłącza wysyłkę
   endpoint: https://tele.pamb.uk/v1/telemetry   # odbiornik projektu; pusty: nic nie wychodzi
+
+# Migawka liczb dla panelu admina: po każdym cyklu `now.json` i `daily.jsonl` (same liczby,
+# bez treści i imion; dziecko to id). Domyślnie w katalogu danych, w podkatalogu stats.
+stats:
+  enabled: true
+  # dir: /data/stats

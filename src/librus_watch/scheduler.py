@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -37,6 +38,7 @@ from librus_watch.feedback import (
 )
 from librus_watch.lock import InstanceLock
 from librus_watch.secret_env import get_secret
+from librus_watch.stats import note_cycle, write_stats
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates, send_questions
@@ -109,6 +111,7 @@ def run_once(
     Returns:
         Raport przebiegu.
     """
+    started = time.monotonic()
     report = CycleReport()
     for child in cfg.children:
         st = store.fetch_state(child.id, now.date())
@@ -155,6 +158,8 @@ def run_once(
                 "findings_new": sum(len(r.findings) for r in report.reports),
             },
         )
+        note_cycle(store, now, time.monotonic() - started)
+        write_stats(cfg, store, now)
     log.info(
         "przebieg: %d dzieci pobranych, %d pominiętych, %d błędów, pilnych wysłanych %d",
         len(report.reports),

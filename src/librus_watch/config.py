@@ -454,6 +454,15 @@ class FeedbackConfig(Strict):
     """Adres odbiornika korpusu (HTTPS; HTTP tylko dla nazw wewnętrznych); pusty: nic."""
 
 
+class StatsConfig(Strict):
+    """Migawka liczb dla panelu admina (`stats.py`): bez treści i bez imion."""
+
+    enabled: bool = True
+    """Czy zapisywać `now.json` i `daily.jsonl` po każdym cyklu."""
+    dir: Path | None = None
+    """Katalog migawki; domyślnie `data_dir/stats`."""
+
+
 class Config(Strict):
     """Cała konfiguracja programu."""
 
@@ -472,6 +481,7 @@ class Config(Strict):
     alerts: AlertsConfig = AlertsConfig()
     feedback: FeedbackConfig = FeedbackConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    stats: StatsConfig = StatsConfig()
     whatsapp: WhatsAppConfig = WhatsAppConfig()
 
     @model_validator(mode="after")
