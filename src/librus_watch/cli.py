@@ -14,23 +14,23 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
-from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from librus_watch.alerts import Alert, AlertLine, compose, mark_alert_sent, render
 from librus_watch.config import AlertType, Config, ConfigError, Kind, child_credentials, load_config
+from librus_watch.delivery import deliver
 from librus_watch.errors import AuthError, TransientError
 from librus_watch.lock import AlreadyRunning, InstanceLock
 from librus_watch.models import Finding, Origin
-from librus_watch.notify import AppriseSender, Sender, send
+from librus_watch.scheduler import local_now, run_once, run_service
 from librus_watch.secret_env import MissingSecretError, get_secret, setup_logging
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
-from librus_watch.telegram import chat_ids, http_call, process_updates, send_alert
+from librus_watch.telegram import chat_ids, http_call, process_updates
 
 log = logging.getLogger(__name__)
 
@@ -61,33 +61,11 @@ def _parser() -> argparse.ArgumentParser:
     brief.add_argument("kind", choices=[a.value for a in AlertType])
     brief.add_argument("--dry-run", action="store_true", help="tylko wypisz, nie wysyłaj")
     sub.add_parser("test-notify", help="wyślij powiadomienie testowe z wymyśloną pozycją")
+    sub.add_parser("run", help="usługa: pobieranie, podsumowania, odbiór kliknięć")
+    once = sub.add_parser("run-once", help="jeden przebieg dla wszystkich dzieci")
+    once.add_argument("--dry-run", action="store_true", help="bez zapisu danych i bez wysyłki")
     sub.add_parser("telegram-poll", help="odbierz oceny i zgłoszenia z bota Telegrama")
     return parser
-
-
-def _channels(cfg: Config) -> tuple[Sender | None, Any]:
-    """Kanały: Apprise (gdy jest `APPRISE_CONFIG`) i bot Telegrama (gdy jest token)."""
-    sender: Sender | None = None
-    raw = get_secret("APPRISE_CONFIG", required=False)
-    if raw is not None:
-        sender = AppriseSender(raw.get_secret_value())
-    token = get_secret("TELEGRAM_BOT_TOKEN", required=False)
-    bot = (http_call(token.get_secret_value()), chat_ids()) if token is not None else None
-    return sender, bot
-
-
-def _deliver(alert: Alert, cfg: Config, today: date) -> bool:
-    """Wysyła powiadomienie wszystkimi kanałami; `True`, gdy któryś zadziałał."""
-    sender, bot = _channels(cfg)
-    ok = False
-    if sender is not None:
-        ok = send(alert, cfg, sender, today).sent > 0
-    if bot is not None:
-        call, chats = bot
-        ok = send_alert(alert, cfg, call, chats, today) > 0 or ok
-    if sender is None and bot is None:
-        print("brak kanałów: ustaw APPRISE_CONFIG albo TELEGRAM_BOT_TOKEN", file=sys.stderr)
-    return ok
 
 
 def cmd_brief(args: argparse.Namespace, cfg: Config) -> int:
@@ -103,13 +81,30 @@ def cmd_brief(args: argparse.Namespace, cfg: Config) -> int:
             if args.dry_run:
                 print(render(alert, cfg, now.date()))
                 return EXIT_OK
-            if not _deliver(alert, cfg, now.date()):
+            if not deliver(alert, cfg, now.date()):
                 return EXIT_FETCH
             mark_alert_sent(alert, store, now)
             print(f"wysłane: {len(alert.lines)} pozycji")
             return EXIT_OK
         finally:
             store.close()
+
+
+def cmd_run_once(args: argparse.Namespace, cfg: Config) -> int:
+    """Polecenie `run-once`: jeden przebieg z ochroną kont i raportem liczb."""
+    with InstanceLock(cfg.data_dir):
+        store = Store(cfg.data_dir)
+        try:
+            result = run_once(cfg, store, local_now(cfg), dry_run=args.dry_run)
+        finally:
+            store.close()
+    for r in result.reports:
+        print(format_report(r))
+    for child, why in result.skipped.items():
+        print(f"{child}: pominięte ({why})")
+    for child, error in result.errors.items():
+        print(f"{child}: błąd ({error})")
+    return EXIT_OK if not result.errors else EXIT_FETCH
 
 
 def cmd_test_notify(cfg: Config) -> int:
@@ -131,7 +126,7 @@ def cmd_test_notify(cfg: Config) -> int:
         "librus-watch: powiadomienie testowe",
         [AlertLine(sample, cfg.alerts.priority_of(sample.kind))],
     )
-    return EXIT_OK if _deliver(alert, cfg, today) else EXIT_FETCH
+    return EXIT_OK if deliver(alert, cfg, today) else EXIT_FETCH
 
 
 def cmd_telegram_poll(cfg: Config) -> int:
@@ -288,6 +283,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "brief":
             return cmd_brief(args, cfg)
+        if args.command == "run":
+            run_service(cfg)
+            return EXIT_OK
+        if args.command == "run-once":
+            return cmd_run_once(args, cfg)
         if args.command == "test-notify":
             return cmd_test_notify(cfg)
         if args.command == "telegram-poll":

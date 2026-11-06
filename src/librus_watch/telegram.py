@@ -106,14 +106,16 @@ def _edit(call: Call, chat: int, msg: dict[str, Any], text: str, buttons: list[A
         log.warning("telegram: nie udało się oznaczyć wiadomości (%s)", type(e).__name__)
 
 
-def process_updates(store: Store, call: Call, chats: list[int], now: datetime) -> int:
+def process_updates(
+    store: Store, call: Call, chats: list[int], now: datetime, wait: int = 0
+) -> int:
     """Odbiera kliknięcia i polecenia, zapisuje oceny.
 
     Returns:
         Liczba przetworzonych aktualizacji z dozwolonych czatów.
     """
     offset = int(store.get_meta("telegram_offset") or 0)
-    data = call("getUpdates", {"offset": offset, "timeout": 0})
+    data = call("getUpdates", {"offset": offset, "timeout": wait})
     done = 0
     for u in data.get("result", []):
         store.set_meta("telegram_offset", str(int(u["update_id"]) + 1))

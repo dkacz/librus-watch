@@ -85,7 +85,7 @@ def login_child(
     Raises:
         LoginBlocked: Gdy logowanie jest wstrzymane albo limit wyczerpany.
         AuthError: Logowanie odrzucone (blokada zapisana).
-        TransientError: Przejściowy problem (porażka odnotowana).
+        TransientError: Przejściowy problem (przerwę ustala przebieg).
     """
     st = store.fetch_state(child, now.date())
     if not force:
@@ -114,9 +114,8 @@ def login_child(
         log.error("dziecko %s: logowanie wstrzymane do %s", child, f"{until:%Y-%m-%d %H:%M}")
         raise
     except TransientError:
-        store.save_fetch_state(
-            child, replace(st, failures=st.failures + 1, last_error="TransientError")
-        )
+        # licznik porażek i przerwę po błędach przejściowych prowadzi przebieg (scheduler)
+        store.save_fetch_state(child, replace(st, last_error="TransientError"))
         raise
     if session.device_cookie and session.device_cookie != device:
         store.set_meta(meta_key, session.device_cookie)

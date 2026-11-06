@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from librus_watch import cli
+from librus_watch import cli, delivery
 from librus_watch.config import Kind, load_config
 from librus_watch.models import Finding, Origin
 from librus_watch.store import Store
@@ -35,7 +35,7 @@ class Channels:
 @pytest.fixture
 def channels(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Channels:
     ch = Channels()
-    monkeypatch.setattr(cli, "_channels", lambda cfg: (ch, (ch.call, [42])))
+    monkeypatch.setattr(delivery, "channels", lambda cfg: (ch, (ch.call, [42])))
     monkeypatch.setattr(cli, "http_call", lambda token: ch.call)
     token = tmp_path / "tg_token"
     token.write_text(TOKEN)
