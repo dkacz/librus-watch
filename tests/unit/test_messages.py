@@ -6,9 +6,10 @@ import requests
 from librus_apix.exceptions import ParseError, TokenError
 from librus_apix.messages import Message, MessageData
 
+from librus_watch.config import ContentType
 from librus_watch.errors import AuthError, SchemaError, TransientError
 from librus_watch.librus import messages
-from librus_watch.models import MessageRef, MessageSource
+from librus_watch.models import TextItem
 
 CLIENT: Any = object()
 
@@ -35,9 +36,9 @@ def pages(monkeypatch: pytest.MonkeyPatch) -> list[list[Message]]:
 def test_list_new_stops_on_first_known_message(pages: list[list[Message]]) -> None:
     got = messages.list_new(CLIENT, "ania", lambda key: key == "28", max_pages=5)
     assert [m.key for m in got] == ["30", "29"]
-    assert got[0] == MessageRef(
+    assert got[0] == TextItem(
         child="ania",
-        source=MessageSource.message,
+        source=ContentType.message,
         key="30",
         sent=date(2026, 11, 5),
         author="Anna Testowa (Anna Testowa) [Wychowawca]",
@@ -69,7 +70,7 @@ def test_library_errors_are_classified(
     monkeypatch.setattr(messages.apix_messages, "message_content", boom)
     with pytest.raises(expected):
         messages.list_new(CLIENT, "ania", lambda _k: False, 5)
-    ref = MessageRef("ania", MessageSource.message, "30", date(2026, 11, 5), "a", "t")
+    ref = TextItem("ania", ContentType.message, "30", date(2026, 11, 5), "a", "t")
     with pytest.raises(expected) as exc:
         messages.fetch_body(CLIENT, ref)
     assert exc.value.__cause__ is None
@@ -83,6 +84,6 @@ def test_fetch_body_strips_content(monkeypatch: pytest.MonkeyPatch) -> None:
         return MessageData("a", "t", "\n  Zbiórka 7:30.  \n", "2026-11-05")
 
     monkeypatch.setattr(messages.apix_messages, "message_content", content)
-    ref = MessageRef("ania", MessageSource.message, "30", date(2026, 11, 5), "a", "t")
+    ref = TextItem("ania", ContentType.message, "30", date(2026, 11, 5), "a", "t")
     assert messages.fetch_body(CLIENT, ref) == "Zbiórka 7:30."
     assert seen == ["30"]

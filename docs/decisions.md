@@ -119,3 +119,20 @@ Klasy błędów pobierania:
 **Decyzja.** Tekst przechodzi przez stopnie od najtańszego: normalizacja i odcisk treści, sito deterministyczne (niezmienione, przeterminowane, stara historia, komentarze bez dat i słów-kluczy), cache wyników kluczowany odciskiem treści, wersją promptu i modelem (także dla pustych wyników, wspólny dla dzieci), kolejka z priorytetem terminu i dziennym budżetem, triage wsadowy tym samym modelem, ekstrakcja ze stałym prefiksem promptu (cache promptu po stronie serwera), walidacja z jedną próbą naprawy. Jeden model na cykl, zapytania kolejno, osobny limit czasu na zimny start. Możliwości endpointu sprawdzane sondą i zapamiętywane na dobę. Brak automatycznego przełączania na model zdalny. Szczegóły: `docs/llm.md`.
 
 **Skutki.** W zwykły dzień model dostaje kilka zapytań. Pomyłki sita i triage są ustawione w bezpieczną stronę: wątpliwy tekst idzie do ekstrakcji. Zmiana promptu albo modelu nie przelicza historii, tylko teksty wciąż aktualne. Awaria modelu nie zatrzymuje odstępstw wyliczanych przez program, a przedłużona daje raport o awarii.
+
+## ADR-014: Typy treści ignorowane w całości, domyślnie oceny
+
+**Kontekst.** Oś czasu w aplikacji Librus pokazuje wszystko, także informacje, które nie zmieniają dnia rodzica, np. nową ocenę. Różne rodziny chcą pomijać różne rzeczy. Komentarze do ocen bywają jednak kanałem informacji o odstępstwach („poprawa w czwartek na 1. lekcji”).
+
+**Decyzja.** Konfiguracja ma listę typów treści ignorowanych w całości (`ignore_content`). Typ z listy nie trafia do bazy, do modelu ani do powiadomień. Jeśli żaden niezignorowany typ nie potrzebuje danego modułu API, moduł nie jest w ogóle pobierany. Domyślnie ignorowane są same oceny (`grade`). Komentarze do ocen (`grade_comment`) są osobnym typem i domyślnie zostają, a moduł ocen jest wtedy pobierany tylko jako słownik do komentarzy. Nieznany typ na liście to błąd konfiguracji; zignorowanie zmian planu albo dni wolnych jest dozwolone, ale program ostrzega o tym przy starcie.
+
+Oceny i komentarze do ocen wybiera się niezależnie:
+
+| `ignore_content` zawiera | Oceny | Komentarze do ocen | Moduły pobierane |
+|---|---|---|---|
+| nic z tej pary | w strumieniu | czyta model | `Grades`, `Grades/Comments` |
+| `grade` (domyślnie) | pominięte | czyta model | oba (`Grades` tylko jako słownik przedmiotu i daty komentarza) |
+| `grade_comment` | w strumieniu | pominięte | tylko `Grades` |
+| `grade`, `grade_comment` | pominięte | pominięte | żaden |
+
+**Skutki.** Rodzic decyduje, co jest szumem, bez zmian w kodzie. Wyłączenie typu zmniejsza też liczbę zapytań do Librusa i do modelu. Typy: `message`, `notice`, `agenda`, `homework`, `grade`, `grade_comment`, `note`, `lesson_topic`, `conference`, `trip`, `activity`, `plan_change`, `free_day`.

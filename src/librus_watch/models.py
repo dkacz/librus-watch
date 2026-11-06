@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, time
 from enum import StrEnum
 
-from librus_watch.config import Kind
+from librus_watch.config import ContentType, Kind
 
 
 def fingerprint(*parts: object) -> str:
@@ -50,9 +50,11 @@ class Lesson:
         start: Godzina rozpoczęcia.
         end: Godzina zakończenia.
         subject: Przedmiot (pusty dla okienka).
-        teacher: Nauczyciel i sala w formacie Librusa.
+        teacher: Nauczyciel (i sala, jeśli źródło ją podaje).
         status: Stan lekcji.
-        note: Adnotacja Librusa (np. zastępujący nauczyciel).
+        note: Adnotacja Librusa (np. uwaga do zastępstwa).
+        key: Rozróżnia lekcje w jednym slocie (klasa podzielona na grupy);
+            id lekcji z API.
     """
 
     child: str
@@ -64,6 +66,7 @@ class Lesson:
     teacher: str
     status: LessonStatus = LessonStatus.normal
     note: str = ""
+    key: str = ""
 
     @property
     def held(self) -> bool:
@@ -71,22 +74,16 @@ class Lesson:
         return bool(self.subject) and self.status is not LessonStatus.cancelled
 
 
-class EntrySource(StrEnum):
-    """Skąd pochodzi wpis."""
-
-    schedule = "schedule"
-    """Terminarz (sprawdziany, wycieczki, wydarzenia)."""
-    homework = "homework"
-    """Prace domowe."""
-
-
 @dataclass(frozen=True)
 class Entry:
-    """Wpis z terminarza albo praca domowa.
+    """Wpis z datą: terminarz, zadanie domowe, zebranie, wycieczka, zajęcia, ocena.
+
+    Służy do wyliczania zmian terminów bez modelu. Wolny tekst tych samych
+    wpisów trafia osobno do `TextItem`.
 
     Attributes:
         child: Id dziecka.
-        source: Terminarz albo praca domowa.
+        source: Typ treści.
         key: Stabilny klucz wpisu (id z Librusa albo skrót pól identyfikujących).
         day: Data wydarzenia lub termin oddania.
         title: Tytuł lub kategoria wpisu.
@@ -98,7 +95,7 @@ class Entry:
     """
 
     child: str
-    source: EntrySource
+    source: ContentType
     key: str
     day: date
     title: str
@@ -121,34 +118,125 @@ class Entry:
         return " · ".join(p for p in parts if p)
 
 
-class MessageSource(StrEnum):
-    """Rodzaj komunikatu."""
-
-    message = "message"
-    announcement = "announcement"
-
-
 @dataclass(frozen=True)
-class MessageRef:
-    """Wiadomość albo ogłoszenie.
+class TextItem:
+    """Wolny tekst z dowolnego modułu, kandydat do odczytu przez model (ADR-012).
 
     Attributes:
-        child: Id dziecka (konto, na którym komunikat jest widoczny).
-        source: Wiadomość albo ogłoszenie.
-        key: Stabilny klucz (id wiadomości z Librusa albo skrót ogłoszenia).
-        sent: Data wysłania.
-        author: Autor.
-        title: Temat.
-        body: Treść; `None`, gdy jeszcze nie pobrano.
+        child: Id dziecka (konto, na którym tekst jest widoczny).
+        source: Typ treści.
+        key: Stabilny klucz w obrębie typu (id z Librusa).
+        sent: Data wysłania lub dodania.
+        author: Autor (w bazie, nigdy w logach).
+        title: Temat lub krótki opis.
+        body: Treść; `None`, gdy jeszcze nie pobrano (wiadomości).
+        valid_from: Od kiedy tekst dotyczy (np. początek ogłoszenia, data wpisu).
+        valid_to: Do kiedy tekst dotyczy (np. koniec ogłoszenia, termin zadania).
     """
 
     child: str
-    source: MessageSource
+    source: ContentType
     key: str
     sent: date
     author: str
     title: str
     body: str | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+
+    @property
+    def fp(self) -> str:
+        """Odcisk treści wpisu; zmiana oznacza, że tekst trzeba przeczytać ponownie."""
+        return fingerprint(self.title, self.body, self.valid_from, self.valid_to)
+
+
+class PlanChangeKind(StrEnum):
+    """Rodzaj zmiany w planie lekcji."""
+
+    cancelled = "cancelled"
+    substitution = "substitution"
+    shifted = "shifted"
+
+
+@dataclass(frozen=True)
+class PlanChange:
+    """Zmiana w planie lekcji (`Calendars/Substitutions`).
+
+    Attributes:
+        child: Id dziecka.
+        key: Id zmiany z Librusa.
+        kind: Odwołanie, zastępstwo albo przesunięcie.
+        org_day: Dzień lekcji, której dotyczy zmiana.
+        org_lesson_no: Numer tej lekcji.
+        subject: Przedmiot lekcji, której dotyczy zmiana.
+        teacher: Nauczyciel lekcji, której dotyczy zmiana.
+        new_day: Dzień lekcji zastępującej (zastępstwo, przesunięcie).
+        new_lesson_no: Numer lekcji zastępującej.
+        new_subject: Przedmiot lekcji zastępującej.
+        new_teacher: Nauczyciel lekcji zastępującej.
+    """
+
+    child: str
+    key: str
+    kind: PlanChangeKind
+    org_day: date
+    org_lesson_no: int | None
+    subject: str = ""
+    teacher: str = ""
+    new_day: date | None = None
+    new_lesson_no: int | None = None
+    new_subject: str = ""
+    new_teacher: str = ""
+
+    @property
+    def fp(self) -> str:
+        """Odcisk zmiany; inny przy tym samym kluczu oznacza poprawioną zmianę."""
+        return fingerprint(
+            self.kind,
+            self.org_day,
+            self.org_lesson_no,
+            self.subject,
+            self.new_day,
+            self.new_lesson_no,
+            self.new_subject,
+        )
+
+
+@dataclass(frozen=True)
+class FreeDay:
+    """Dzień wolny szkoły albo klasy, cały lub na część lekcji.
+
+    Attributes:
+        child: Id dziecka.
+        key: Id z Librusa (z prefiksem zakresu, bo id szkoły i klasy mogą się powtarzać).
+        scope: `school` albo `class`.
+        name: Nazwa (dla dni klasy może być pusta).
+        date_from: Pierwszy dzień.
+        date_to: Ostatni dzień.
+        lesson_from: Pierwsza wolna lekcja, gdy wolna jest tylko część dnia.
+        lesson_to: Ostatnia wolna lekcja.
+    """
+
+    child: str
+    key: str
+    scope: str
+    name: str
+    date_from: date
+    date_to: date
+    lesson_from: int | None = None
+    lesson_to: int | None = None
+
+    @property
+    def fp(self) -> str:
+        """Odcisk dnia wolnego."""
+        return fingerprint(
+            self.name, self.date_from, self.date_to, self.lesson_from, self.lesson_to
+        )
+
+    @property
+    def whole_day(self) -> bool:
+        """Czy wolny jest cały dzień (bez zakresu lekcji)."""
+        return self.lesson_from is None and self.lesson_to is None
 
 
 class Origin(StrEnum):
@@ -162,6 +250,8 @@ class Origin(StrEnum):
     """Ze zmiany w terminarzu."""
     homework = "homework"
     """Z prac domowych."""
+    free_day = "free_day"
+    """Z dni wolnych szkoły lub klasy."""
 
 
 @dataclass(frozen=True)

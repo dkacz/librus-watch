@@ -18,8 +18,9 @@ from librus_apix import messages as apix_messages
 from librus_apix.client import Client
 from librus_apix.exceptions import TokenError
 
+from librus_watch.config import ContentType
 from librus_watch.errors import AuthError, SchemaError, TransientError
-from librus_watch.models import MessageRef, MessageSource
+from librus_watch.models import TextItem
 
 log = logging.getLogger(__name__)
 _NETWORK = (requests.Timeout, requests.ConnectionError)
@@ -55,7 +56,7 @@ def list_new(
     child_id: str,
     is_known: Callable[[str], bool],
     max_pages: int,
-) -> list[MessageRef]:
+) -> list[TextItem]:
     """Zwraca wiadomości odebrane, których program jeszcze nie zna.
 
     Args:
@@ -68,7 +69,7 @@ def list_new(
         Nowe wiadomości od najnowszej, bez treści.
     """
     last = _call("wiadomości", lambda: apix_messages.get_max_page_number(client))
-    out: list[MessageRef] = []
+    out: list[TextItem] = []
     for page in range(min(last + 1, max_pages)):
         items = _call("wiadomości", lambda p=page: apix_messages.get_received(client, p))  # type: ignore[misc]
         for m in items:
@@ -78,9 +79,9 @@ def list_new(
                 log.debug("wiadomości: %d nowych (stop na znanej)", len(out))
                 return out
             out.append(
-                MessageRef(
+                TextItem(
                     child=child_id,
-                    source=MessageSource.message,
+                    source=ContentType.message,
                     key=m.href,
                     sent=date.fromisoformat(m.date[:10]),
                     author=m.author.strip(),
@@ -91,7 +92,7 @@ def list_new(
     return out
 
 
-def fetch_body(client: Client, message: MessageRef) -> str:
+def fetch_body(client: Client, message: TextItem) -> str:
     """Pobiera treść jednej wiadomości.
 
     Args:

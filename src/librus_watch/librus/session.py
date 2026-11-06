@@ -76,7 +76,7 @@ class LibrusSession:
         child_id: str,
         creds: Credentials,
         timeout: float,
-        client_factory: Callable[[float], Client] = new_client,
+        client_factory: Callable[[float], Client] | None = None,
     ) -> LibrusSession:
         """Loguje się do Synergii i pobiera token JSON-owego API.
 
@@ -87,7 +87,8 @@ class LibrusSession:
             child_id: Id dziecka z konfiguracji.
             creds: Login rodzica i hasło.
             timeout: Limit czasu żądań w sekundach.
-            client_factory: Tworzy klienta (podmieniane w testach).
+            client_factory: Tworzy klienta; domyślnie `new_client` (odczytywane
+                przy wywołaniu, więc testy mogą je podmienić w module).
 
         Returns:
             Zalogowana sesja z odświeżonym tokenem API.
@@ -96,7 +97,7 @@ class LibrusSession:
             TransientError: Limit czasu, błąd sieci albo prace serwisowe.
             AuthError: Logowanie odrzucone lub nieudane z innego powodu.
         """
-        client = client_factory(timeout)
+        client = (client_factory or new_client)(timeout)
         try:
             token = client.get_token(
                 creds.login.get_secret_value(), creds.password.get_secret_value()

@@ -23,6 +23,14 @@ children:
   - id: kuba
     name: Kuba
 
+# Typy treści pomijane w całości: nie trafiają do bazy, do modelu ani do
+# powiadomień, a moduł Librusa potrzebny tylko im nie jest w ogóle pobierany.
+# Dostępne: message, notice, agenda, homework, grade, grade_comment, note,
+# lesson_topic, conference, trip, activity, plan_change, free_day.
+# Oceny (grade) i komentarze do ocen (grade_comment) wybiera się osobno:
+# w komentarzach bywa np. termin poprawy, więc domyślnie zostają.
+ignore_content: [grade]
+
 fetch:
   interval_minutes: 60     # nie mniej niż 20, żeby nie obciążać Librusa
   active_hours: {start: "06:00", end: "21:30"}
@@ -33,6 +41,9 @@ fetch:
   schedule_months: 2
   homework_days_ahead: 21
   max_message_pages: 5
+  message_bodies: true     # treść nowych wiadomości; otwarcie może oznaczyć ją jako przeczytaną
+  message_body_attempts: 3
+  message_body_days: 14    # starszych wiadomości nie otwieramy (pierwsza synchronizacja)
 
 # Model językowy czytający wiadomości od nauczycieli.
 # Dowolne API zgodne z OpenAI: lokalnie llama.cpp, llama-swap, Ollama;

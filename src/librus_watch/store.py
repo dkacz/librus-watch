@@ -10,10 +10,19 @@ Tabele:
 * `fetch_state`: licznik porażek, odstęp i blokada pobierania per dziecko,
 * `lessons`: ostatnio pobrany plan lekcji per dzień,
 * `day_profile`: planowany początek i koniec dnia (historia do wyliczania normy),
-* `entries`: terminarz i prace domowe z datą pierwszego i ostatniego widzenia,
-* `messages`: wiadomości i ogłoszenia z treścią (pobieraną raz) i stanem analizy,
+* `entries`: wpisy z datą (terminarz, zadania, zebrania, wycieczki, zajęcia, oceny)
+  z datą pierwszego i ostatniego widzenia,
+* `texts`: wolne teksty ze wszystkich modułów z treścią (wiadomości pobierane raz)
+  i stanem odczytu przez model,
+* `plan_changes`: odwołania i zastępstwa z `Calendars/Substitutions`,
+* `free_days`: dni wolne szkoły i klasy,
+* `lookups`: słowniki API (przedmioty, użytkownicy, kategorie, klasa) per dziecko,
+* `module_state`: kiedy moduł API był ostatnio pobrany (moduły rzadko zmienne),
 * `findings`: wykryte odstępstwa (historia wersji),
 * `sent`: co i w jakiej wersji zostało już wysłane.
+
+Wpisy, teksty, zmiany planu i dni wolne mają odcisk treści (`fp`). Zapis zwraca
+`Change`, więc dalsze etapy dostają tylko to, co nowe albo zmienione.
 """
 
 from __future__ import annotations
@@ -26,21 +35,24 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from enum import StrEnum
 from pathlib import Path
 
+from librus_watch.config import ContentType
 from librus_watch.models import (
     Entry,
-    EntrySource,
     Finding,
+    FreeDay,
     Lesson,
     LessonStatus,
-    MessageRef,
-    MessageSource,
+    PlanChange,
+    PlanChangeKind,
+    TextItem,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-_SCHEMA = """
+_SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fetch_state (
     child TEXT PRIMARY KEY,
@@ -91,6 +103,80 @@ CREATE TABLE IF NOT EXISTS sent (
 );
 """
 
+_V1_TO_V2 = """
+CREATE TABLE texts (
+    child TEXT NOT NULL, source TEXT NOT NULL, key TEXT NOT NULL,
+    sent TEXT NOT NULL, author TEXT NOT NULL, title TEXT NOT NULL, body TEXT,
+    valid_from TEXT, valid_to TEXT, fp TEXT NOT NULL,
+    body_attempts INTEGER NOT NULL DEFAULT 0,
+    extracted_at TEXT, extract_attempts INTEGER NOT NULL DEFAULT 0,
+    first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+    PRIMARY KEY (child, source, key)
+);
+INSERT INTO texts (child, source, key, sent, author, title, body, fp, body_attempts,
+                   extracted_at, extract_attempts, first_seen, last_seen)
+SELECT child, CASE source WHEN 'announcement' THEN 'notice' ELSE source END, key, sent,
+       author, title, body, '', body_attempts, extracted_at, extract_attempts,
+       first_seen, first_seen
+FROM messages;
+DROP TABLE messages;
+CREATE INDEX texts_queue ON texts (extracted_at, sent);
+
+ALTER TABLE lessons RENAME TO lessons_v1;
+CREATE TABLE lessons (
+    child TEXT NOT NULL, day TEXT NOT NULL, number INTEGER NOT NULL,
+    key TEXT NOT NULL DEFAULT '',
+    start TEXT, "end" TEXT, subject TEXT NOT NULL, teacher TEXT NOT NULL,
+    status TEXT NOT NULL, note TEXT NOT NULL, fetched_at TEXT NOT NULL,
+    PRIMARY KEY (child, day, number, key)
+);
+INSERT INTO lessons (child, day, number, key, start, "end", subject, teacher, status, note,
+                     fetched_at)
+SELECT child, day, number, '', start, "end", subject, teacher, status, note, fetched_at
+FROM lessons_v1;
+DROP TABLE lessons_v1;
+
+UPDATE entries SET source='agenda' WHERE source='schedule';
+
+CREATE TABLE plan_changes (
+    child TEXT NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL,
+    org_day TEXT NOT NULL, org_lesson_no INTEGER, subject TEXT NOT NULL,
+    teacher TEXT NOT NULL, new_day TEXT, new_lesson_no INTEGER,
+    new_subject TEXT NOT NULL, new_teacher TEXT NOT NULL,
+    fp TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+    PRIMARY KEY (child, key)
+);
+CREATE TABLE free_days (
+    child TEXT NOT NULL, key TEXT NOT NULL, scope TEXT NOT NULL, name TEXT NOT NULL,
+    date_from TEXT NOT NULL, date_to TEXT NOT NULL, lesson_from INTEGER, lesson_to INTEGER,
+    fp TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+    PRIMARY KEY (child, key)
+);
+CREATE TABLE lookups (
+    child TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+    PRIMARY KEY (child, kind, key)
+);
+CREATE TABLE module_state (
+    child TEXT NOT NULL, module TEXT NOT NULL, fetched_at TEXT NOT NULL,
+    PRIMARY KEY (child, module)
+);
+"""
+
+_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2}
+"""Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
+
+
+_FP_TABLES = frozenset({"plan_changes", "free_days"})
+"""Tabele obsługiwane przez `Store._upsert_fp` (nazwy wstawiane do SQL tylko z tej listy)."""
+
+
+class Change(StrEnum):
+    """Wynik zapisu rekordu z odciskiem treści."""
+
+    new = "new"
+    changed = "changed"
+    same = "same"
+
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +202,16 @@ def _t(v: time | None) -> str | None:
 def _pt(v: str | None) -> time | None:
     """Tekst HH:MM jako godzina albo `None`."""
     return time.fromisoformat(v) if v else None
+
+
+def _d(v: date | None) -> str | None:
+    """Data jako tekst ISO albo `None`."""
+    return v.isoformat() if v else None
+
+
+def _pd(v: str | None) -> date | None:
+    """Tekst ISO jako data albo `None`."""
+    return date.fromisoformat(v) if v else None
 
 
 @dataclass(frozen=True)
@@ -180,22 +276,23 @@ class Store:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Tworzy schemat i podbija wersję (kolejne migracje dopisujemy tutaj).
+        """Podnosi schemat migracja po migracji, każda w osobnej transakcji.
 
         `executescript` zatwierdza otwartą transakcję przed startem, dlatego
-        transakcja jest częścią samego skryptu, a nie `tx()`.
+        transakcja jest częścią samego skryptu, a nie `tx()`. Przerwana
+        migracja zostawia bazę w poprzedniej, spójnej wersji.
         """
         version = int(self.db.execute("PRAGMA user_version").fetchone()[0])
-        if version < SCHEMA_VERSION:
+        for target in range(version + 1, SCHEMA_VERSION + 1):
             try:
                 self.db.executescript(
-                    f"BEGIN IMMEDIATE;{_SCHEMA}PRAGMA user_version={SCHEMA_VERSION};COMMIT;"
+                    f"BEGIN IMMEDIATE;{_MIGRATIONS[target]}PRAGMA user_version={target};COMMIT;"
                 )
             except BaseException:
                 if self.db.in_transaction:
                     self.db.execute("ROLLBACK")
                 raise
-            log.info("schemat bazy: wersja %d -> %d", version, SCHEMA_VERSION)
+            log.info("schemat bazy: wersja %d -> %d", target - 1, target)
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -324,11 +421,13 @@ class Store:
                 db.execute("DELETE FROM lessons WHERE child=? AND day=?", (child, day.isoformat()))
                 for ls in lessons:
                     db.execute(
-                        "INSERT INTO lessons VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        'INSERT OR REPLACE INTO lessons(child, day, number, key, start, "end", '
+                        "subject, teacher, status, note, fetched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             child,
                             day.isoformat(),
                             ls.number,
+                            ls.key,
                             _t(ls.start),
                             _t(ls.end),
                             ls.subject,
@@ -366,7 +465,7 @@ class Store:
             Lekcje posortowane po numerze (pusta lista, gdy brak danych).
         """
         rows = self.db.execute(
-            "SELECT * FROM lessons WHERE child=? AND day=? ORDER BY number",
+            "SELECT * FROM lessons WHERE child=? AND day=? ORDER BY number, key",
             (child, day.isoformat()),
         ).fetchall()
         return [
@@ -380,6 +479,7 @@ class Store:
                 teacher=r["teacher"],
                 status=LessonStatus(r["status"]),
                 note=r["note"],
+                key=r["key"],
             )
             for r in rows
         ]
@@ -422,7 +522,7 @@ class Store:
 
     # --- terminarz i prace domowe --------------------------------------------
 
-    def entries(self, child: str, source: EntrySource, *, active_only: bool = True) -> list[Entry]:
+    def entries(self, child: str, source: ContentType, *, active_only: bool = True) -> list[Entry]:
         """Zapisane wpisy danego źródła.
 
         Args:
@@ -440,7 +540,7 @@ class Store:
         return [
             Entry(
                 child=r["child"],
-                source=EntrySource(r["source"]),
+                source=ContentType(r["source"]),
                 key=r["key"],
                 day=date.fromisoformat(r["day"]),
                 title=r["title"],
@@ -453,13 +553,27 @@ class Store:
             for r in rows
         ]
 
-    def upsert_entry(self, e: Entry, now: datetime) -> None:
-        """Zapisuje nową lub zmienioną wersję wpisu (i cofa ewentualne usunięcie).
+    def upsert_entry(self, e: Entry, now: datetime) -> Change:
+        """Zapisuje wpis; zmiana treści albo powrót usuniętego wpisu to `changed`.
 
         Args:
             e: Wpis.
             now: Moment pobrania.
+
+        Returns:
+            Czy wpis jest nowy, zmieniony, czy bez zmian.
         """
+        row = self.db.execute(
+            "SELECT fp, removed_at FROM entries WHERE child=? AND source=? AND key=?",
+            (e.child, e.source.value, e.key),
+        ).fetchone()
+        change = (
+            Change.new
+            if row is None
+            else Change.same
+            if row["fp"] == e.fp and row["removed_at"] is None
+            else Change.changed
+        )
         self.db.execute(
             "INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL) "
             "ON CONFLICT(child, source, key) DO UPDATE SET day=excluded.day, at=excluded.at, "
@@ -482,6 +596,7 @@ class Store:
                 now.isoformat(),
             ),
         )
+        return change
 
     def mark_entry_removed(self, e: Entry, now: datetime) -> None:
         """Oznacza wpis jako usunięty z Librusa (rekord zostaje w historii).
@@ -495,129 +610,398 @@ class Store:
             (now.isoformat(), e.child, e.source.value, e.key),
         )
 
-    # --- wiadomości -----------------------------------------------------------
+    # --- wolne teksty ---------------------------------------------------------
 
-    def known_message(self, child: str, source: MessageSource, key: str) -> bool:
-        """Czy komunikat jest już w bazie.
+    def known_text(self, child: str, source: ContentType, key: str) -> bool:
+        """Czy tekst jest już w bazie.
 
         Args:
             child: Id dziecka.
-            source: Wiadomość albo ogłoszenie.
-            key: Klucz komunikatu.
+            source: Typ treści.
+            key: Klucz tekstu.
 
         Returns:
-            `True`, gdy komunikat był już widziany.
+            `True`, gdy tekst był już widziany.
         """
         row = self.db.execute(
-            "SELECT 1 FROM messages WHERE child=? AND source=? AND key=?",
+            "SELECT 1 FROM texts WHERE child=? AND source=? AND key=?",
             (child, source.value, key),
         ).fetchone()
         return row is not None
 
-    def add_message(self, m: MessageRef, now: datetime) -> None:
-        """Dodaje komunikat (bez nadpisywania istniejącego).
+    def upsert_text(self, t: TextItem, now: datetime) -> Change:
+        """Zapisuje tekst; zmieniony wraca do kolejki modelu.
+
+        Treść `None` (wiadomość z listy, jeszcze bez treści) nie nadpisuje
+        pobranej wcześniej. Tekst przeniesiony migracją (pusty odcisk) przyjmuje
+        nowy odcisk bez oznaczania zmiany, żeby nie wracał do modelu bez powodu.
 
         Args:
-            m: Komunikat; treść może być pusta, jeśli jeszcze jej nie pobrano.
+            t: Tekst.
             now: Moment pobrania.
+
+        Returns:
+            Czy tekst jest nowy, zmieniony, czy bez zmian.
         """
+        row = self.db.execute(
+            "SELECT fp FROM texts WHERE child=? AND source=? AND key=?",
+            (t.child, t.source.value, t.key),
+        ).fetchone()
+        if row is None:
+            self.db.execute(
+                "INSERT INTO texts(child, source, key, sent, author, title, body, valid_from, "
+                "valid_to, fp, first_seen, last_seen) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    t.child,
+                    t.source.value,
+                    t.key,
+                    t.sent.isoformat(),
+                    t.author,
+                    t.title,
+                    t.body,
+                    _d(t.valid_from),
+                    _d(t.valid_to),
+                    t.fp,
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            return Change.new
+        where = (t.child, t.source.value, t.key)
+        if row["fp"] in (t.fp, ""):
+            self.db.execute(
+                "UPDATE texts SET fp=?, last_seen=? WHERE child=? AND source=? AND key=?",
+                (t.fp, now.isoformat(), *where),
+            )
+            return Change.same
         self.db.execute(
-            "INSERT INTO messages(child, source, key, sent, author, title, body, first_seen) "
-            "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+            "UPDATE texts SET sent=?, author=?, title=?, body=COALESCE(?, body), valid_from=?, "
+            "valid_to=?, fp=?, last_seen=?, extracted_at=NULL, extract_attempts=0 "
+            "WHERE child=? AND source=? AND key=?",
             (
-                m.child,
-                m.source.value,
-                m.key,
-                m.sent.isoformat(),
-                m.author,
-                m.title,
-                m.body,
+                t.sent.isoformat(),
+                t.author,
+                t.title,
+                t.body,
+                _d(t.valid_from),
+                _d(t.valid_to),
+                t.fp,
                 now.isoformat(),
+                *where,
             ),
         )
+        return Change.changed
 
-    def messages_without_body(self, child: str, max_attempts: int) -> list[MessageRef]:
-        """Wiadomości, których treści jeszcze nie udało się pobrać.
+    def texts(self, child: str, source: ContentType | None = None) -> list[TextItem]:
+        """Teksty dziecka, opcjonalnie jednego typu.
 
         Args:
             child: Id dziecka.
-            max_attempts: Pomija wiadomości z taką lub większą liczbą nieudanych prób.
+            source: Typ treści albo `None` dla wszystkich.
 
         Returns:
-            Wiadomości bez treści.
+            Teksty od najnowszego.
+        """
+        sql, args = "SELECT * FROM texts WHERE child=?", [child]
+        if source is not None:
+            sql += " AND source=?"
+            args.append(source.value)
+        rows = self.db.execute(sql + " ORDER BY sent DESC, key", args).fetchall()
+        return [self._text(r) for r in rows]
+
+    def texts_without_body(
+        self, child: str, source: ContentType, max_attempts: int
+    ) -> list[TextItem]:
+        """Teksty, których treści jeszcze nie udało się pobrać (wiadomości).
+
+        Args:
+            child: Id dziecka.
+            source: Typ treści.
+            max_attempts: Pomija teksty z taką lub większą liczbą nieudanych prób.
+
+        Returns:
+            Teksty bez treści.
         """
         rows = self.db.execute(
-            "SELECT * FROM messages WHERE child=? AND body IS NULL AND body_attempts<?",
-            (child, max_attempts),
+            "SELECT * FROM texts WHERE child=? AND source=? AND body IS NULL AND body_attempts<?",
+            (child, source.value, max_attempts),
         ).fetchall()
-        return [self._msg(r) for r in rows]
+        return [self._text(r) for r in rows]
 
-    def set_body(self, m: MessageRef, body: str | None) -> None:
+    def set_body(self, t: TextItem, body: str | None) -> None:
         """Zapisuje pobraną treść albo odnotowuje nieudaną próbę.
 
         Args:
-            m: Komunikat.
+            t: Tekst.
             body: Treść albo `None` przy porażce.
         """
         if body is None:
             self.db.execute(
-                "UPDATE messages SET body_attempts=body_attempts+1 "
+                "UPDATE texts SET body_attempts=body_attempts+1 "
                 "WHERE child=? AND source=? AND key=?",
-                (m.child, m.source.value, m.key),
+                (t.child, t.source.value, t.key),
             )
         else:
             self.db.execute(
-                "UPDATE messages SET body=? WHERE child=? AND source=? AND key=?",
-                (body, m.child, m.source.value, m.key),
+                "UPDATE texts SET body=? WHERE child=? AND source=? AND key=?",
+                (body, t.child, t.source.value, t.key),
             )
 
-    def messages_to_extract(self, max_attempts: int) -> list[MessageRef]:
-        """Komunikaty z treścią, które czekają na analizę modelem.
+    def texts_to_extract(self, max_attempts: int) -> list[TextItem]:
+        """Teksty z treścią, które czekają na odczyt przez model.
 
         Args:
-            max_attempts: Pomija komunikaty z taką lub większą liczbą nieudanych analiz.
+            max_attempts: Pomija teksty z taką lub większą liczbą nieudanych odczytów.
 
         Returns:
-            Komunikaty od najstarszego.
+            Teksty od najstarszego.
         """
         rows = self.db.execute(
-            "SELECT * FROM messages WHERE body IS NOT NULL AND extracted_at IS NULL "
-            "AND extract_attempts<? ORDER BY sent",
+            "SELECT * FROM texts WHERE body IS NOT NULL AND extracted_at IS NULL "
+            "AND extract_attempts<? ORDER BY sent, key",
             (max_attempts,),
         ).fetchall()
-        return [self._msg(r) for r in rows]
+        return [self._text(r) for r in rows]
 
-    def mark_extracted(self, m: MessageRef, now: datetime | None) -> None:
-        """Odnotowuje wynik analizy.
+    def mark_extracted(self, t: TextItem, now: datetime | None) -> None:
+        """Odnotowuje wynik odczytu przez model.
 
         Args:
-            m: Komunikat.
-            now: Moment udanej analizy albo `None` przy porażce (zwiększa licznik prób).
+            t: Tekst.
+            now: Moment udanego odczytu albo `None` przy porażce (zwiększa licznik prób).
         """
         if now is None:
             self.db.execute(
-                "UPDATE messages SET extract_attempts=extract_attempts+1 "
+                "UPDATE texts SET extract_attempts=extract_attempts+1 "
                 "WHERE child=? AND source=? AND key=?",
-                (m.child, m.source.value, m.key),
+                (t.child, t.source.value, t.key),
             )
         else:
             self.db.execute(
-                "UPDATE messages SET extracted_at=? WHERE child=? AND source=? AND key=?",
-                (now.isoformat(), m.child, m.source.value, m.key),
+                "UPDATE texts SET extracted_at=? WHERE child=? AND source=? AND key=?",
+                (now.isoformat(), t.child, t.source.value, t.key),
             )
 
     @staticmethod
-    def _msg(r: sqlite3.Row) -> MessageRef:
-        """Wiersz tabeli `messages` jako `MessageRef`."""
-        return MessageRef(
+    def _text(r: sqlite3.Row) -> TextItem:
+        """Wiersz tabeli `texts` jako `TextItem`."""
+        return TextItem(
             child=r["child"],
-            source=MessageSource(r["source"]),
+            source=ContentType(r["source"]),
             key=r["key"],
             sent=date.fromisoformat(r["sent"]),
             author=r["author"],
             title=r["title"],
             body=r["body"],
+            valid_from=_pd(r["valid_from"]),
+            valid_to=_pd(r["valid_to"]),
         )
+
+    # --- zmiany planu i dni wolne ----------------------------------------------
+
+    def _upsert_fp(
+        self, table: str, child: str, key: str, fp: str, values: dict[str, object], now: datetime
+    ) -> Change:
+        """Wspólny zapis rekordu z odciskiem treści dla tabel z kluczem (child, key).
+
+        Args:
+            table: `plan_changes` albo `free_days` (stała w kodzie, nie dane z zewnątrz).
+            child: Id dziecka.
+            key: Klucz rekordu.
+            fp: Odcisk treści.
+            values: Pozostałe kolumny.
+            now: Moment pobrania.
+
+        Returns:
+            Czy rekord jest nowy, zmieniony, czy bez zmian.
+        """
+        if table not in _FP_TABLES:
+            raise ValueError(f"nieznana tabela: {table}")
+        row = self.db.execute(
+            f"SELECT fp FROM {table} WHERE child=? AND key=?",  # noqa: S608 - tabela z _FP_TABLES
+            (child, key),
+        ).fetchone()
+        change = Change.new if row is None else Change.same if row["fp"] == fp else Change.changed
+        cols = ["child", "key", *values, "fp", "first_seen", "last_seen"]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in [*values, "fp", "last_seen"])
+        self.db.execute(
+            f"INSERT INTO {table}({', '.join(cols)}) VALUES({', '.join('?' * len(cols))}) "
+            f"ON CONFLICT(child, key) DO UPDATE SET {updates}",
+            (child, key, *values.values(), fp, now.isoformat(), now.isoformat()),
+        )
+        return change
+
+    def upsert_plan_change(self, pc: PlanChange, now: datetime) -> Change:
+        """Zapisuje zmianę planu lekcji.
+
+        Args:
+            pc: Zmiana.
+            now: Moment pobrania.
+
+        Returns:
+            Czy zmiana jest nowa, poprawiona, czy bez zmian.
+        """
+        return self._upsert_fp(
+            "plan_changes",
+            pc.child,
+            pc.key,
+            pc.fp,
+            {
+                "kind": pc.kind.value,
+                "org_day": pc.org_day.isoformat(),
+                "org_lesson_no": pc.org_lesson_no,
+                "subject": pc.subject,
+                "teacher": pc.teacher,
+                "new_day": _d(pc.new_day),
+                "new_lesson_no": pc.new_lesson_no,
+                "new_subject": pc.new_subject,
+                "new_teacher": pc.new_teacher,
+            },
+            now,
+        )
+
+    def plan_changes(self, child: str) -> list[PlanChange]:
+        """Zmiany planu dziecka.
+
+        Args:
+            child: Id dziecka.
+
+        Returns:
+            Zmiany od najwcześniejszego dnia.
+        """
+        rows = self.db.execute(
+            "SELECT * FROM plan_changes WHERE child=? ORDER BY org_day, org_lesson_no, key",
+            (child,),
+        ).fetchall()
+        return [
+            PlanChange(
+                child=r["child"],
+                key=r["key"],
+                kind=PlanChangeKind(r["kind"]),
+                org_day=date.fromisoformat(r["org_day"]),
+                org_lesson_no=r["org_lesson_no"],
+                subject=r["subject"],
+                teacher=r["teacher"],
+                new_day=_pd(r["new_day"]),
+                new_lesson_no=r["new_lesson_no"],
+                new_subject=r["new_subject"],
+                new_teacher=r["new_teacher"],
+            )
+            for r in rows
+        ]
+
+    def upsert_free_day(self, fd: FreeDay, now: datetime) -> Change:
+        """Zapisuje dzień wolny.
+
+        Args:
+            fd: Dzień wolny.
+            now: Moment pobrania.
+
+        Returns:
+            Czy dzień jest nowy, zmieniony, czy bez zmian.
+        """
+        return self._upsert_fp(
+            "free_days",
+            fd.child,
+            fd.key,
+            fd.fp,
+            {
+                "scope": fd.scope,
+                "name": fd.name,
+                "date_from": fd.date_from.isoformat(),
+                "date_to": fd.date_to.isoformat(),
+                "lesson_from": fd.lesson_from,
+                "lesson_to": fd.lesson_to,
+            },
+            now,
+        )
+
+    def free_days(self, child: str) -> list[FreeDay]:
+        """Dni wolne dziecka.
+
+        Args:
+            child: Id dziecka.
+
+        Returns:
+            Dni wolne od najwcześniejszego.
+        """
+        rows = self.db.execute(
+            "SELECT * FROM free_days WHERE child=? ORDER BY date_from, key", (child,)
+        ).fetchall()
+        return [
+            FreeDay(
+                child=r["child"],
+                key=r["key"],
+                scope=r["scope"],
+                name=r["name"],
+                date_from=date.fromisoformat(r["date_from"]),
+                date_to=date.fromisoformat(r["date_to"]),
+                lesson_from=r["lesson_from"],
+                lesson_to=r["lesson_to"],
+            )
+            for r in rows
+        ]
+
+    # --- słowniki i stan modułów -----------------------------------------------
+
+    def save_lookups(self, child: str, kind: str, values: dict[str, str]) -> None:
+        """Zastępuje słownik danego rodzaju (np. przedmioty) nową wersją.
+
+        Args:
+            child: Id dziecka (słowniki zależą od szkoły).
+            kind: Rodzaj słownika, np. `subjects`.
+            values: Id -> nazwa.
+        """
+        with self.tx() as db:
+            db.execute("DELETE FROM lookups WHERE child=? AND kind=?", (child, kind))
+            db.executemany(
+                "INSERT INTO lookups VALUES(?,?,?,?)",
+                [(child, kind, k, v) for k, v in values.items()],
+            )
+
+    def lookups(self, child: str, kind: str) -> dict[str, str]:
+        """Słownik danego rodzaju.
+
+        Args:
+            child: Id dziecka.
+            kind: Rodzaj słownika.
+
+        Returns:
+            Id -> nazwa (pusty, gdy brak).
+        """
+        rows = self.db.execute(
+            "SELECT key, value FROM lookups WHERE child=? AND kind=?", (child, kind)
+        ).fetchall()
+        return {r["key"]: r["value"] for r in rows}
+
+    def mark_module(self, child: str, module: str, now: datetime) -> None:
+        """Odnotowuje udane pobranie modułu API.
+
+        Args:
+            child: Id dziecka.
+            module: Nazwa modułu.
+            now: Moment pobrania.
+        """
+        self.db.execute(
+            "INSERT INTO module_state VALUES(?,?,?) "
+            "ON CONFLICT(child, module) DO UPDATE SET fetched_at=excluded.fetched_at",
+            (child, module, now.isoformat()),
+        )
+
+    def module_fetched_at(self, child: str, module: str) -> datetime | None:
+        """Kiedy moduł był ostatnio pobrany.
+
+        Args:
+            child: Id dziecka.
+            module: Nazwa modułu.
+
+        Returns:
+            Moment pobrania albo `None`.
+        """
+        row = self.db.execute(
+            "SELECT fetched_at FROM module_state WHERE child=? AND module=?", (child, module)
+        ).fetchone()
+        return datetime.fromisoformat(row["fetched_at"]) if row else None
 
     # --- odstępstwa i wysyłka --------------------------------------------------
 
@@ -743,7 +1127,9 @@ class Store:
                 "DELETE FROM lessons WHERE day<?",
                 "DELETE FROM day_profile WHERE day<?",
                 "DELETE FROM entries WHERE day<?",
-                "DELETE FROM messages WHERE sent<?",
+                "DELETE FROM texts WHERE COALESCE(valid_to, sent)<?",
+                "DELETE FROM plan_changes WHERE COALESCE(new_day, org_day)<?",
+                "DELETE FROM free_days WHERE date_to<?",
                 "DELETE FROM findings WHERE day<?",
             ):
                 removed += db.execute(sql, (d,)).rowcount

@@ -94,6 +94,41 @@ class Kind(StrEnum):
     """Inna jednorazowa informacja wymagająca działania rodzica."""
 
 
+class ContentType(StrEnum):
+    """Typ treści z Librusa; jednostka wyboru w `ignore_content` (ADR-014)."""
+
+    message = "message"
+    """Wiadomość odebrana."""
+    notice = "notice"
+    """Ogłoszenie szkoły."""
+    agenda = "agenda"
+    """Wpis w terminarzu (sprawdzian, wycieczka, „Inne”)."""
+    homework = "homework"
+    """Zadanie domowe."""
+    grade = "grade"
+    """Nowa ocena."""
+    grade_comment = "grade_comment"
+    """Komentarz nauczyciela do oceny."""
+    note = "note"
+    """Uwaga."""
+    lesson_topic = "lesson_topic"
+    """Temat zrealizowanej lekcji."""
+    conference = "conference"
+    """Zebranie z rodzicami."""
+    trip = "trip"
+    """Wycieczka szkolna."""
+    activity = "activity"
+    """Zajęcia dodatkowe."""
+    plan_change = "plan_change"
+    """Odwołanie lub zastępstwo w planie lekcji."""
+    free_day = "free_day"
+    """Dzień wolny szkoły lub klasy."""
+
+
+CORE_CONTENT = frozenset({ContentType.plan_change, ContentType.free_day})
+"""Typy, których zignorowanie wyłącza główną funkcję programu (ostrzeżenie przy starcie)."""
+
+
 HHMM = Annotated[time, Field(description="Godzina w formacie HH:MM")]
 
 
@@ -156,6 +191,13 @@ class FetchConfig(Strict):
     """Zakres prac domowych w przód (w dniach)."""
     max_message_pages: Annotated[int, Field(ge=1, le=50)] = 5
     """Bezpiecznik: maksymalna liczba stron wiadomości przeglądanych w jednym pobraniu."""
+    message_bodies: bool = True
+    """Czy pobierać treść nowych wiadomości (otwarcie może ją oznaczyć jako przeczytaną)."""
+    message_body_attempts: Annotated[int, Field(ge=1, le=10)] = 3
+    """Po tylu nieudanych próbach pobrania treści wiadomość jest pomijana."""
+    message_body_days: Annotated[int, Field(ge=1, le=365)] = 14
+    """Treść pobieramy tylko dla wiadomości z ostatnich tylu dni (pierwsza synchronizacja
+    nie otwiera całej historii)."""
 
 
 class LLMConfig(Strict):
@@ -316,6 +358,8 @@ class Config(Strict):
     retention_days: Annotated[int, Field(ge=30, le=3650)] = 400
     """Starsze dane są usuwane z bazy (minimalizacja danych)."""
     children: Annotated[list[Child], Field(min_length=1, max_length=8)]
+    ignore_content: frozenset[ContentType] = frozenset({ContentType.grade})
+    """Typy treści pomijane w całości: nie trafiają do bazy, modelu ani powiadomień (ADR-014)."""
     fetch: FetchConfig = FetchConfig()
     llm: LLMConfig = LLMConfig()
     alerts: AlertsConfig = AlertsConfig()
@@ -337,6 +381,8 @@ class Config(Strict):
         for r in self.alerts.routes:
             if r.children and not set(r.children) <= known:
                 raise ValueError(f"route.children zawiera nieznane id: {set(r.children) - known}")
+        for t in sorted(self.ignore_content & CORE_CONTENT):
+            log.warning("ignore_content zawiera %s: program nie zgłosi tych odstępstw", t.value)
         return self
 
     def child(self, child_id: str) -> Child:

@@ -49,3 +49,24 @@ def test_secret_like_keys_are_rejected(tmp_path: Path, key: str) -> None:
     path.write_text(f"children: [{{id: a, name: A}}]\nllm: {{{key}: x}}\n")
     with pytest.raises(ValueError, match="wygląda na sekret"):
         load_config(path)
+
+
+def test_ignoring_core_content_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("children: [{id: a, name: A}]\nignore_content: [plan_change, grade]\n")
+    cfg = load_config(path)
+    assert cfg.ignore_content == {"plan_change", "grade"}
+    assert "ignore_content zawiera plan_change" in caplog.text
+
+
+def test_unknown_content_type_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("children: [{id: a, name: A}]\nignore_content: [oceny]\n")
+    with pytest.raises(ValidationError):
+        load_config(path)
+
+
+def test_default_ignores_only_grades(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("children: [{id: a, name: A}]\n")
+    assert load_config(path).ignore_content == {"grade"}

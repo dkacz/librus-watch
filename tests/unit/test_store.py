@@ -6,18 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from librus_watch.config import Kind
+from librus_watch.config import ContentType, Kind
 from librus_watch.models import (
     Entry,
-    EntrySource,
     Finding,
+    FreeDay,
     Lesson,
     LessonStatus,
-    MessageRef,
-    MessageSource,
     Origin,
+    PlanChange,
+    PlanChangeKind,
+    TextItem,
 )
-from librus_watch.store import SCHEMA_VERSION, FetchState, Store
+from librus_watch.store import _MIGRATIONS, SCHEMA_VERSION, Change, FetchState, Store
 
 MON = date(2026, 11, 9)
 NOW = datetime(2026, 11, 6, 18, 0)
@@ -119,6 +120,7 @@ def test_open_logs_migration_and_loose_permissions(
     data = tmp_path / "data"
     Store(data).close()
     assert "schemat bazy: wersja 0 -> 1" in caplog.text
+    assert "schemat bazy: wersja 1 -> 2" in caplog.text
     assert "uprawnienia" not in caplog.text
     caplog.clear()
     (data / "librus-watch.db").chmod(0o644)
@@ -196,43 +198,164 @@ def test_day_without_lessons_has_empty_profile(store: Store) -> None:
 
 
 def test_removed_entry_stays_in_history_and_can_return(store: Store) -> None:
-    e = Entry("ania", EntrySource.schedule, "s1", MON, "sprawdzian", subject="matematyka")
+    e = Entry("ania", ContentType.agenda, "s1", MON, "sprawdzian", subject="matematyka")
     store.upsert_entry(e, NOW)
     store.mark_entry_removed(e, LATER)
-    assert store.entries("ania", EntrySource.schedule) == []
-    assert store.entries("ania", EntrySource.schedule, active_only=False) == [e]
-    moved = Entry("ania", EntrySource.schedule, "s1", date(2026, 11, 11), "sprawdzian")
+    assert store.entries("ania", ContentType.agenda) == []
+    assert store.entries("ania", ContentType.agenda, active_only=False) == [e]
+    moved = Entry("ania", ContentType.agenda, "s1", date(2026, 11, 11), "sprawdzian")
     store.upsert_entry(moved, LATER)
-    assert store.entries("ania", EntrySource.schedule) == [moved]
-    assert store.entries("ania", EntrySource.homework) == []
+    assert store.entries("ania", ContentType.agenda) == [moved]
+    assert store.entries("ania", ContentType.homework) == []
 
 
 # --- wiadomości: treść pobierana raz -----------------------------------------
 
 
-def test_message_is_not_overwritten_and_body_attempts_count(store: Store) -> None:
-    m = MessageRef("ania", MessageSource.message, "m1", MON, "T. Testowa", "Wycieczka")
-    store.add_message(m, NOW)
-    store.add_message(MessageRef("ania", MessageSource.message, "m1", MON, "inny", "inny"), LATER)
-    assert store.known_message("ania", MessageSource.message, "m1")
-    assert not store.known_message("ania", MessageSource.announcement, "m1")
+def text(key: str = "m1", **kw: object) -> TextItem:
+    base: dict[str, object] = {
+        "child": "ania",
+        "source": ContentType.message,
+        "key": key,
+        "sent": MON,
+        "author": "T. Testowa",
+        "title": "Wycieczka",
+    }
+    base.update(kw)
+    return TextItem(**base)  # type: ignore[arg-type]
+
+
+def test_message_body_is_kept_and_attempts_count(store: Store) -> None:
+    m = text()
+    assert store.upsert_text(m, NOW) is Change.new
+    assert store.upsert_text(m, LATER) is Change.same
+    assert store.known_text("ania", ContentType.message, "m1")
+    assert not store.known_text("ania", ContentType.notice, "m1")
     store.set_body(m, None)
     store.set_body(m, None)
-    assert store.messages_without_body("ania", max_attempts=3) == [m]
-    assert store.messages_without_body("ania", max_attempts=2) == []
+    assert store.texts_without_body("ania", ContentType.message, max_attempts=3) == [m]
+    assert store.texts_without_body("ania", ContentType.message, max_attempts=2) == []
     store.set_body(m, "zbiórka 7:30")
-    assert store.messages_without_body("ania", 3) == []
-    assert [x.title for x in store.messages_to_extract(3)] == ["Wycieczka"]
+    assert store.texts_without_body("ania", ContentType.message, 3) == []
+    assert store.upsert_text(m, LATER) is Change.same  # lista bez treści jej nie kasuje
+    assert [x.body for x in store.texts_to_extract(3)] == ["zbiórka 7:30"]
+
+
+def test_changed_text_returns_to_extraction_queue(store: Store) -> None:
+    n = text("n1", source=ContentType.notice, body="W piątek apel.", valid_to=MON)
+    store.upsert_text(n, NOW)
+    store.mark_extracted(n, NOW)
+    assert store.texts_to_extract(3) == []
+    moved = text("n1", source=ContentType.notice, body="Apel w czwartek.", valid_to=MON)
+    assert store.upsert_text(moved, LATER) is Change.changed
+    assert store.texts_to_extract(3) == [moved]
+    assert store.texts("ania", ContentType.notice) == [moved]
+    assert store.texts("ania") == [moved]
 
 
 def test_extract_queue_respects_attempts_and_success(store: Store) -> None:
-    m = MessageRef("ania", MessageSource.announcement, "a1", MON, "Dyrekcja", "Wolne", "treść")
-    store.add_message(m, NOW)
-    store.mark_extracted(m, None)
-    assert store.messages_to_extract(1) == []
-    assert store.messages_to_extract(2) == [m]
-    store.mark_extracted(m, LATER)
-    assert store.messages_to_extract(5) == []
+    n = text("a1", source=ContentType.notice, author="Dyrekcja", title="Wolne", body="treść")
+    store.upsert_text(n, NOW)
+    store.mark_extracted(n, None)
+    assert store.texts_to_extract(1) == []
+    assert store.texts_to_extract(2) == [n]
+    store.mark_extracted(n, LATER)
+    assert store.texts_to_extract(5) == []
+
+
+def test_entry_upsert_reports_changes(store: Store) -> None:
+    e = Entry("ania", ContentType.agenda, "s1", MON, "sprawdzian")
+    assert store.upsert_entry(e, NOW) is Change.new
+    assert store.upsert_entry(e, LATER) is Change.same
+    store.mark_entry_removed(e, LATER)
+    assert store.upsert_entry(e, LATER) is Change.changed  # wrócił po usunięciu
+    moved = Entry("ania", ContentType.agenda, "s1", date(2026, 11, 11), "sprawdzian")
+    assert store.upsert_entry(moved, LATER) is Change.changed
+
+
+def test_lessons_in_one_slot_for_groups_are_kept(store: Store) -> None:
+    groups = [lesson(2, "08:55", "09:40", key="a"), lesson(2, "08:55", "09:40", key="b")]
+    store.save_lessons("ania", {MON: groups}, NOW)
+    assert [ls.key for ls in store.lessons("ania", MON)] == ["a", "b"]
+
+
+# --- zmiany planu, dni wolne, słowniki, stan modułów -------------------------
+
+
+def test_plan_changes_and_free_days_report_changes(store: Store) -> None:
+    pc = PlanChange("ania", "1", PlanChangeKind.cancelled, MON, 3, subject="matematyka")
+    assert store.upsert_plan_change(pc, NOW) is Change.new
+    assert store.upsert_plan_change(pc, LATER) is Change.same
+    sub = PlanChange(
+        "ania",
+        "1",
+        PlanChangeKind.substitution,
+        MON,
+        3,
+        subject="matematyka",
+        new_day=MON,
+        new_lesson_no=3,
+        new_subject="przyroda",
+        new_teacher="B. Zastępcza",
+    )
+    assert store.upsert_plan_change(sub, LATER) is Change.changed
+    assert store.plan_changes("ania") == [sub]
+    fd = FreeDay("ania", "class:5", "class", "", MON, MON, lesson_from=4, lesson_to=6)
+    assert store.upsert_free_day(fd, NOW) is Change.new
+    assert store.upsert_free_day(fd, LATER) is Change.same
+    assert store.free_days("ania") == [fd]
+    assert not fd.whole_day
+
+
+def test_upsert_fp_rejects_unknown_table(store: Store) -> None:
+    with pytest.raises(ValueError, match="nieznana tabela"):
+        store._upsert_fp("sent; DROP TABLE texts", "ania", "1", "fp", {}, NOW)
+
+
+def test_lookups_are_replaced_and_modules_tracked(store: Store) -> None:
+    store.save_lookups("ania", "subjects", {"501": "Matematyka", "502": "Przyroda"})
+    store.save_lookups("ania", "subjects", {"501": "Matematyka"})
+    assert store.lookups("ania", "subjects") == {"501": "Matematyka"}
+    assert store.lookups("kuba", "subjects") == {}
+    assert store.module_fetched_at("ania", "Subjects") is None
+    store.mark_module("ania", "Subjects", NOW)
+    store.mark_module("ania", "Subjects", LATER)
+    assert store.module_fetched_at("ania", "Subjects") == LATER
+
+
+# --- migracja 1 -> 2 ---------------------------------------------------------
+
+
+def test_migration_from_v1_keeps_data(tmp_path: Path) -> None:
+    import sqlite3
+
+    data = tmp_path / "data"
+    data.mkdir(mode=0o700)
+    db = sqlite3.connect(data / "librus-watch.db")
+    db.executescript(_MIGRATIONS[1] + "PRAGMA user_version=1;")
+    db.executescript(
+        "INSERT INTO messages(child, source, key, sent, author, title, body, extracted_at, "
+        "first_seen) VALUES ('ania','message','m1','2026-11-05','A','Wycieczka','treść',"
+        "'2026-11-05T19:00:00','2026-11-05T18:00:00');"
+        "INSERT INTO messages(child, source, key, sent, author, title, first_seen) VALUES "
+        "('ania','announcement','a1','2026-11-05','B','Apel','2026-11-05T18:00:00');"
+        "INSERT INTO lessons VALUES ('ania','2026-11-09',1,'08:00','08:45','matematyka','T',"
+        "'normal','','2026-11-05T18:00:00');"
+        "INSERT INTO entries VALUES ('ania','schedule','s1','2026-11-12',NULL,'sprawdzian','',"
+        "'','','','fp1','2026-11-05T18:00:00','2026-11-05T18:00:00',NULL);"
+    )
+    db.close()
+    s = Store(data)
+    assert s.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    m1 = s.texts("ania", ContentType.message)[0]
+    assert (m1.key, m1.body) == ("m1", "treść")
+    assert [t.key for t in s.texts("ania", ContentType.notice)] == ["a1"]
+    assert s.texts_to_extract(3) == []  # odczytana wiadomość nie wraca do modelu
+    # pierwszy zapis po migracji przyjmuje odcisk bez oznaczania zmiany
+    assert s.upsert_text(text("m1", author="A", sent=date(2026, 11, 5)), NOW) is Change.same
+    assert [ls.number for ls in s.lessons("ania", MON)] == [1]
+    assert [e.key for e in s.entries("ania", ContentType.agenda)] == ["s1"]
+    s.close()
 
 
 # --- odstępstwa, wersje i wysyłka --------------------------------------------
@@ -273,14 +396,19 @@ def test_purge_removes_only_old_data(store: Store, caplog: pytest.LogCaptureFixt
     caplog.set_level(logging.INFO, logger="librus_watch.store")
     old = date(2025, 9, 1)
     store.save_lessons("ania", {old: [lesson(1, "08:00", "08:45")], MON: []}, NOW)
-    store.upsert_entry(Entry("ania", EntrySource.homework, "h1", old, "zadanie"), NOW)
-    store.add_message(MessageRef("ania", MessageSource.message, "m0", old, "a", "t"), NOW)
+    store.upsert_entry(Entry("ania", ContentType.homework, "h1", old, "zadanie"), NOW)
+    store.upsert_text(text("m0", sent=old), NOW)
+    store.upsert_text(text("n0", source=ContentType.notice, sent=old, valid_to=MON), NOW)
+    store.upsert_plan_change(PlanChange("ania", "p0", PlanChangeKind.cancelled, old, 1), NOW)
+    store.upsert_free_day(FreeDay("ania", "school:1", "school", "Wolne", old, old), NOW)
     store.add_finding(finding(day=old), NOW)
     store.add_finding(finding(), NOW)
     store.purge(date(2026, 1, 1))
-    assert "usunięto 5 rekordów" in caplog.text
+    assert "usunięto 7 rekordów" in caplog.text
     assert not store.has_timetable("ania", old)
     assert store.has_timetable("ania", MON)
-    assert store.entries("ania", EntrySource.homework, active_only=False) == []
-    assert not store.known_message("ania", MessageSource.message, "m0")
+    assert store.entries("ania", ContentType.homework, active_only=False) == []
+    assert not store.known_text("ania", ContentType.message, "m0")
+    assert store.known_text("ania", ContentType.notice, "n0")  # ważne do MON
+    assert store.plan_changes("ania") == [] and store.free_days("ania") == []
     assert [c.finding.day for c in store.current_findings(old, MON)] == [MON]

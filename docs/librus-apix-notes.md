@@ -61,6 +61,7 @@ Ta sama sesja, po `client.refresh_oauth()` (ciasteczko `oauth_token`). Wszystkie
 | `ParentTeacherConferences` | 1 | `Date`, `Time`, `Topic`, `Name`, `Room` | Ten sam termin bywa też w `HomeWorks`: deduplikacja po dacie i godzinie. |
 | `SchoolTrips` | 3 | `destination`, `route`, `locomotion`, `termFrom`, `termTo` | Pola małymi literami (camelCase). |
 | `Timetables/OtherActivitiesRegister` | 0 | | Zajęcia dodatkowe; `status: CANCELED` dla odwołanych. |
+| `TimetableEntries` | 105–117 | `Lesson.Id`, `DayOfTheWeek`, `LessonNo`, `DateFrom`, `DateTo` | Plan stały, podstawa normy dnia (E4); działa na obu kontach. |
 | `Subjects`, `Users`, `Classes`, `Me` | słowniki | | Odwołania w rekordach to obiekty `{"Id"}`; łączymy u siebie. |
 
 ### Drugie konto (starsza klasa) i oznaczanie jako przeczytane
