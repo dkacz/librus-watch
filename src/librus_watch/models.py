@@ -150,6 +150,31 @@ class TextItem:
         return fingerprint(self.title, self.body, self.valid_from, self.valid_to)
 
 
+@dataclass(frozen=True)
+class StandingLesson:
+    """Lekcja planu stałego (`TimetableEntries`): podstawa normy dnia.
+
+    Attributes:
+        child: Id dziecka.
+        key: Id wpisu planu z Librusa.
+        weekday: Dzień tygodnia, 1 = poniedziałek (jak `date.isoweekday`).
+        lesson_no: Numer lekcji.
+        date_from: Od kiedy wpis obowiązuje.
+        date_to: Do kiedy wpis obowiązuje.
+    """
+
+    child: str
+    key: str
+    weekday: int
+    lesson_no: int
+    date_from: date
+    date_to: date
+
+    def valid_on(self, day: date) -> bool:
+        """Czy wpis obowiązuje w danym dniu (dzień tygodnia i zakres dat)."""
+        return day.isoweekday() == self.weekday and self.date_from <= day <= self.date_to
+
+
 class PlanChangeKind(StrEnum):
     """Rodzaj zmiany w planie lekcji."""
 
@@ -250,8 +275,8 @@ class Origin(StrEnum):
     """Ze zmiany w terminarzu."""
     homework = "homework"
     """Z prac domowych."""
-    free_day = "free_day"
-    """Z dni wolnych szkoły lub klasy."""
+    plan_change = "plan_change"
+    """Ze zmiany planu (odwołanie, zastępstwo) z historii zmian Librusa."""
 
 
 @dataclass(frozen=True)
@@ -298,13 +323,14 @@ class Finding:
         Dwie pozycje o tej samej tożsamości i różnej treści to ZMIANA (np. zbiórka
         przesunięta z 7:30 na 7:15). Dla rzeczy do przyniesienia, zgód
         i płatności w tożsamości jest opis, bo jednego dnia może ich być kilka.
-        Wpisy terminarza i prace domowe mają tożsamość po kluczu wpisu.
+        Pozycje z wpisów (terminarz, zadania) i ze zmian planu mają tożsamość po
+        kluczu źródła, więc przesunięcie terminu to ZMIANA, a nie nowa pozycja.
         """
+        if self.origin in (Origin.schedule, Origin.homework, Origin.plan_change):
+            return fingerprint(self.child, self.origin, self.source_key)
         what_key = " ".join(self.what.lower().split())[:60]
         if self.kind in (Kind.bring, Kind.consent, Kind.payment, Kind.other, Kind.homework):
             return fingerprint(self.child, self.day, self.kind, what_key)
-        if self.origin in (Origin.schedule, Origin.homework):
-            return fingerprint(self.child, self.origin, self.source_key)
         return fingerprint(self.child, self.day, self.kind, self.origin)
 
     @property

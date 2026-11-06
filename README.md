@@ -2,6 +2,8 @@
 
 > **Wersja robocza.** Program jest w budowie i jeszcze nie działa. Ten opis pokazuje, czym będzie.
 
+![alt text](image.png)
+
 Powiadomienia z Librusa o tym, że jutro wygląda inaczej niż zwykle.
 
 Nie dostajesz kopii dziennika. Dostajesz krótką wiadomość wtedy, gdy trzeba coś zrobić albo wyjść z domu o innej porze, i to z wyprzedzeniem, a nie pięć minut przed wyjściem. Gdy dzień jest zwykły, program milczy.

@@ -90,6 +90,10 @@ class Kind(StrEnum):
     """Praca domowa z terminem."""
     change = "change"
     """Zmiana wcześniej ogłoszonego terminu lub szczegółów."""
+    meeting = "meeting"
+    """Zebranie z rodzicami."""
+    grade = "grade"
+    """Nowa ocena (tylko gdy `grade` nie jest w `ignore_content`)."""
     other = "other"
     """Inna jednorazowa informacja wymagająca działania rodzica."""
 
@@ -344,6 +348,8 @@ DEFAULT_PRIORITIES: dict[Kind, Priority] = {
     Kind.test: Priority.normal,
     Kind.homework: Priority.low,
     Kind.change: Priority.high,
+    Kind.meeting: Priority.normal,
+    Kind.grade: Priority.low,
     Kind.other: Priority.low,
 }
 """Domyślne wagi: wysokie dla tego, co zmienia poranek albo wymaga działania przed wyjściem."""

@@ -18,6 +18,7 @@ Tabele:
 * `free_days`: dni wolne szkoły i klasy,
 * `lookups`: słowniki API (przedmioty, użytkownicy, kategorie, klasa) per dziecko,
 * `module_state`: kiedy moduł API był ostatnio pobrany (moduły rzadko zmienne),
+* `standing_plan`: plan stały z `TimetableEntries` (podstawa normy dnia),
 * `findings`: wykryte odstępstwa (historia wersji),
 * `sent`: co i w jakiej wersji zostało już wysłane.
 
@@ -45,12 +46,14 @@ from librus_watch.models import (
     FreeDay,
     Lesson,
     LessonStatus,
+    Origin,
     PlanChange,
     PlanChangeKind,
+    StandingLesson,
     TextItem,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -166,7 +169,15 @@ _V2_TO_V3 = """
 ALTER TABLE fetch_state ADD COLUMN logins INTEGER NOT NULL DEFAULT 0;
 """
 
-_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2, 3: _V2_TO_V3}
+_V3_TO_V4 = """
+CREATE TABLE standing_plan (
+    child TEXT NOT NULL, key TEXT NOT NULL, weekday INTEGER NOT NULL,
+    lesson_no INTEGER NOT NULL, date_from TEXT NOT NULL, date_to TEXT NOT NULL,
+    PRIMARY KEY (child, key)
+);
+"""
+
+_MIGRATIONS: dict[int, str] = {1: _SCHEMA_V1, 2: _V1_TO_V2, 3: _V2_TO_V3, 4: _V3_TO_V4}
 """Skrypt podnoszący schemat do danej wersji; nowa baza przechodzi przez wszystkie po kolei."""
 
 
@@ -528,6 +539,77 @@ class Store:
             (child, weekday, before.isoformat(), limit),
         ).fetchall()
         return [(_pt(r["first_start"]), _pt(r["last_end"]), int(r["lessons"])) for r in rows]
+
+    def save_standing(self, child: str, items: list[StandingLesson]) -> None:
+        """Zastępuje plan stały dziecka nową wersją.
+
+        Args:
+            child: Id dziecka.
+            items: Wpisy planu stałego.
+        """
+        with self.tx() as db:
+            db.execute("DELETE FROM standing_plan WHERE child=?", (child,))
+            db.executemany(
+                "INSERT INTO standing_plan VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        child,
+                        i.key,
+                        i.weekday,
+                        i.lesson_no,
+                        i.date_from.isoformat(),
+                        i.date_to.isoformat(),
+                    )
+                    for i in items
+                ],
+            )
+
+    def standing(self, child: str) -> list[StandingLesson]:
+        """Plan stały dziecka.
+
+        Args:
+            child: Id dziecka.
+
+        Returns:
+            Wpisy planu stałego (pusta lista, gdy brak).
+        """
+        rows = self.db.execute(
+            "SELECT * FROM standing_plan WHERE child=? ORDER BY weekday, lesson_no, key",
+            (child,),
+        ).fetchall()
+        return [
+            StandingLesson(
+                child=r["child"],
+                key=r["key"],
+                weekday=r["weekday"],
+                lesson_no=r["lesson_no"],
+                date_from=date.fromisoformat(r["date_from"]),
+                date_to=date.fromisoformat(r["date_to"]),
+            )
+            for r in rows
+        ]
+
+    def bell_times(self, child: str) -> dict[int, tuple[time, time]]:
+        """Godziny lekcji (dzwonki): najczęstsza para początek-koniec dla numeru lekcji.
+
+        Args:
+            child: Id dziecka.
+
+        Returns:
+            Numer lekcji -> (początek, koniec), z zapisanych planów lekcji.
+        """
+        rows = self.db.execute(
+            'SELECT number, start, "end", COUNT(*) AS n FROM lessons '
+            'WHERE child=? AND start IS NOT NULL AND "end" IS NOT NULL '
+            'GROUP BY number, start, "end" ORDER BY number, n DESC',
+            (child,),
+        ).fetchall()
+        out: dict[int, tuple[time, time]] = {}
+        for r in rows:
+            start, end = _pt(r["start"]), _pt(r["end"])
+            if start and end:
+                out.setdefault(int(r["number"]), (start, end))
+        return out
 
     # --- terminarz i prace domowe --------------------------------------------
 
@@ -1075,6 +1157,26 @@ class Store:
             if day_from <= f.day <= day_to or day_from <= f.action_day <= day_to:
                 out.append(StoredFinding(f, datetime.fromisoformat(r["created_at"])))
         return sorted(out, key=lambda s: (s.finding.action_day, s.finding.child))
+
+    def child_findings(
+        self, child: str, origins: set[Origin], day_from: date, day_to: date
+    ) -> list[Finding]:
+        """Bieżące odstępstwa dziecka z danych źródeł w zakresie dni.
+
+        Args:
+            child: Id dziecka.
+            origins: Źródła, np. plan lekcji i zmiany planu.
+            day_from: Początek zakresu (włącznie).
+            day_to: Koniec zakresu (włącznie).
+
+        Returns:
+            Najnowsze, niewycofane wersje.
+        """
+        return [
+            s.finding
+            for s in self.current_findings(day_from, day_to)
+            if s.finding.child == child and s.finding.origin in origins
+        ]
 
     def previous_version(self, f: Finding) -> Finding | None:
         """Poprzednia wersja odstępstwa (do komunikatu „było… jest…”).

@@ -24,6 +24,7 @@ from librus_watch.models import (
     LessonStatus,
     PlanChange,
     PlanChangeKind,
+    StandingLesson,
     TextItem,
 )
 
@@ -113,6 +114,7 @@ class Snapshot:
 
     Attributes:
         lessons: Plan lekcji per dzień; `None`, gdy moduł planu się nie pobrał.
+        standing: Plan stały; `None`, gdy moduł nie był pobierany w tym cyklu.
         entries: Wpisy z datą (terminarz, zadania, zebrania, wycieczki, zajęcia, oceny).
         texts: Wolne teksty dla modelu.
         plan_changes: Odwołania i zastępstwa.
@@ -121,6 +123,7 @@ class Snapshot:
     """
 
     lessons: dict[date, list[Lesson]] | None = None
+    standing: list[StandingLesson] | None = None
     entries: list[Entry] = field(default_factory=list)
     texts: list[TextItem] = field(default_factory=list)
     plan_changes: list[PlanChange] = field(default_factory=list)
@@ -233,6 +236,17 @@ class _Adapter:
             status=status,
             note=_text(r.get("SubstitutionNote")),
             key=ref_id(r.get("Lesson")) or str(r["_slot"]),
+        )
+
+    def standing_lesson(self, r: Record) -> StandingLesson:
+        """Wpis planu stałego z `TimetableEntries`."""
+        return StandingLesson(
+            child=self.child,
+            key=str(r["Id"]),
+            weekday=int(r["DayOfTheWeek"]),
+            lesson_no=int(r["LessonNo"]),
+            date_from=_date(r["DateFrom"]),
+            date_to=_date(r["DateTo"]),
         )
 
     def plan_change(self, r: Record) -> PlanChange:
@@ -526,6 +540,8 @@ def adapt(
         for ls in a.each("Timetables", rec["Timetables"], a.lesson):
             lessons.setdefault(ls.day, []).append(ls)
         snap.lessons = lessons
+    if "TimetableEntries" in rec:
+        snap.standing = a.each("TimetableEntries", rec["TimetableEntries"], a.standing_lesson)
     if a.wants(ContentType.plan_change):
         snap.plan_changes = a.each("Substitutions", rec.get("Substitutions", []), a.plan_change)
     if a.wants(ContentType.free_day):
