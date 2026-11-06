@@ -1,12 +1,30 @@
 # librus-watch
 
-> **Wersja robocza.** Program jest w budowie i jeszcze nie działa. Ten opis pokazuje, czym będzie.
+> **Wersja robocza.** Program jest w budowie i jeszcze nie wysyła powiadomień. Ten opis pokazuje, czym będzie. Szczegóły w sekcji [Na jakim etapie jest projekt](#na-jakim-etapie-jest-projekt).
+
+> Projekt nieoficjalny, niezwiązany z Librus Sp. z o.o. „Librus” i „Synergia” są znakami towarowymi ich właściciela i są tu użyte wyłącznie do opisu, z jakim dziennikiem program współpracuje.
 
 ![alt text](image.png)
 
 Powiadomienia z Librusa o tym, że jutro wygląda inaczej niż zwykle.
 
 Nie dostajesz kopii dziennika. Dostajesz krótką wiadomość wtedy, gdy trzeba coś zrobić albo wyjść z domu o innej porze, i to z wyprzedzeniem, a nie pięć minut przed wyjściem. Gdy dzień jest zwykły, program milczy.
+
+## Na jakim etapie jest projekt
+
+_Stan na 2026-11-06. Pełny plan z kryteriami odbioru: [docs/roadmap.md](docs/roadmap.md)._
+
+| Co | Stan |
+|---|---|
+| Logowanie do Librusa i pobieranie danych (plan lekcji, zmiany planu, dni wolne, terminarz, zadania, ogłoszenia, oceny i komentarze, wiadomości) | gotowe |
+| Ochrona konta przy logowaniu (limit, przerwa po odmowie, zapamiętane urządzenie) | gotowe |
+| Wykrywanie odstępstw bez sztucznej inteligencji: dzień wolny, inny początek lub koniec lekcji, odwołania, zastępstwa, nowe i przesunięte sprawdziany, wycieczki, zebrania | gotowe |
+| Czytanie wiadomości i ogłoszeń przez model językowy (zbiórki, rzeczy do przyniesienia, zgody) | w przygotowaniu |
+| Powiadomienia w Telegramie i innych kanałach, z przyciskami do oceny | planowane |
+| Działanie jako usługa w kontenerze | planowane |
+| Tydzień próbny i pierwsze wydanie | planowane |
+
+Dziś można uruchomić `librus-watch fetch --dry-run`: program loguje się, pobiera dane i wypisuje liczbę rekordów oraz listę wykrytych odstępstw (dzień i rodzaj, bez treści). Nie wysyła jeszcze żadnych powiadomień.
 
 ## Przykładowe powiadomienia
 
@@ -76,6 +94,7 @@ Do uzupełnienia, gdy powstanie obraz kontenera. Wzorce już są:
 
 - Python 3.12, [`uv`](https://docs.astral.sh/uv/), scraper [`librus-apix`](https://github.com/poroknights/librus-apix), Apprise, SQLite.
 - Decyzje projektowe: [`docs/decisions.md`](docs/decisions.md). Plan realizacji: [`docs/roadmap.md`](docs/roadmap.md).
+- Jak pomóc: [`CONTRIBUTING.md`](CONTRIBUTING.md). Zgłaszanie podatności: [`SECURITY.md`](SECURITY.md).
 - Sekrety tylko przez zmienne środowiskowe lub pliki (`NAZWA_FILE`). Plik konfiguracyjny odrzuca klucze wyglądające na sekrety, a wartości sekretów są wycinane z logów.
 
 ### Rozwój

@@ -6,6 +6,12 @@
 - Etap jest zakończony dopiero wtedy, gdy spełnia kryterium odbioru z roadmapy i przechodzi weryfikację poniżej.
 - Te same zmiany statusu nanieś w lokalnym planie (`local/plan.md`, sekcja „Plan realizacji v2”).
 
+## README: stan projektu dla użytkownika
+
+- README ma sekcję „Na jakim etapie jest projekt”: krótka tabela z punktu widzenia rodzica (co już działa, co w przygotowaniu, co planowane), data aktualizacji i link do `docs/roadmap.md`.
+- Po każdym etapie oznaczonym ✅ w roadmapie zaktualizuj tę sekcję w tym samym commicie: język użytkownika, bez nazw modułów i plików, bez numerów etapów jako jedynej informacji. Zmień też zdanie o tym, co dziś można uruchomić.
+- Baner „Wersja robocza” na górze README zostaje, dopóki program nie wysyła powiadomień (E6) i nie działa jako usługa (E7, E8).
+
 ## Testy: trzy poziomy, każdy kod pokryty
 
 Każdy nowy lub zmieniony kod ma testy na odpowiednim poziomie, w tym samym commicie:

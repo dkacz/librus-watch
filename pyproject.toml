@@ -5,6 +5,17 @@ description = "Watches Librus Synergia and alerts parents about deviations from 
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.12"
+authors = [{ name = "hretheum" }]
+keywords = ["librus", "synergia", "szkoła", "powiadomienia", "telegram"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Polish",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications",
+]
 dependencies = [
     "librus-apix==1.6.0",
     "pydantic>=2.9,<3",
@@ -12,6 +23,11 @@ dependencies = [
     "openai>=1.50,<3",
     "apprise>=1.9,<2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/hretheum/librus-watch"
+Issues = "https://github.com/hretheum/librus-watch/issues"
+Roadmap = "https://github.com/hretheum/librus-watch/blob/main/docs/roadmap.md"
 
 [project.scripts]
 librus-watch = "librus_watch.cli:main"

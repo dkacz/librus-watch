@@ -102,11 +102,33 @@ Każdy etap kończy się testami (sekcja „Testy”), spełnieniem zasad z sekc
 | **E7a Pętla zwrotna lokalna** | zdarzenia oceny (`confirmed`, `wrong`, `missed`, `late`), `librus-watch review`, audyt w cieniu (próbka odrzuconych przez sito i triage), zgodność odstępstw wyliczonych i odczytanych, raport tygodniowy i metryki lokalne, biblioteka przykładów w prompcie; cotygodniowe pytania i raport przez bota Telegrama z E6 (ADR-016, ADR-019, `docs/feedback.md`) | testy jednostkowe ocen, audytu i doboru przykładów; integracyjne: pominięcie z audytu trafia do przeglądu, ocena trafia do lokalnego zestawu oceny, zmiana promptu gorsza na tym zestawie jest odrzucana; w metrykach i raporcie brak treści |
 | **E8 Kontener** | `Containerfile` (obraz bazowy po digeście, bez roota, system plików tylko do odczytu), Quadlet, Compose | budowa na serwerze domowym; restart nie gubi stanu; w logach brak sekretów, nazwisk i treści; zestaw end-to-end uruchomiony w zbudowanym kontenerze |
 | **E9 Pilot** | tydzień pracy z `--dry-run` i powiadomieniami do jednej osoby, codzienne porównanie z osią czasu w aplikacji Librus | żadne odstępstwo widoczne na osi czasu nie zostało przegapione, mało fałszywych alarmów |
-| **E10 Wydanie** | README (instalacja krok po kroku, przykłady), uzupełnione ADR | — |
+| **E10 Wydanie** | lista wydania open source (sekcja „Wydanie open source” niżej): README z instalacją krok po kroku i aktualnym stanem, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, szablony zgłoszeń, CI na pull requestach, ustawienia repo, metadane paczki, tag `v0.1.0` z obrazem kontenera | wszystkie punkty listy odhaczone; świeży klon na czystej maszynie: instalacja według README kończy się działającym `fetch --dry-run` i powiadomieniem testowym; CI zielone na pull requeście z forka |
 | **E11 Wspólny korpus (opt-out)** | domyślnie włączona automatyczna wysyłka zanonimizowanych, ocenionych przykładów (`feedback.share_corpus`, ADR-018): anonimizacja lokalna (słowniki, NER dla polskiego, uogólnienie, „w razie wątpliwości odrzuć”), informacja przy pierwszym uruchomieniu przed pierwszą wysyłką, lokalny dziennik wysłanych przykładów, endpoint zbierania z uwierzytelnieniem i limitem, przegląd po stronie korpusu, wydania z podpisaną paczką zestawu oceny, przykładów i reguł; przegląd prawny przed włączeniem | testy anonimizacji na wymyślonych tekstach z imionami, adresami, telefonami i rzadkimi wydarzeniami: zero przecieków; przykład ryzykowny odrzucany; `share_corpus: false` zatrzymuje wysyłkę od następnego cyklu; bez informacji przy pierwszym uruchomieniu nic nie wychodzi; dziennik zawiera dokładnie to, co wysłano; wkład obniżający wynik na zestawie bazowym nie wchodzi do wydania |
 | **E12 Telemetria zbiorcza (opt-in)** | liczby z raportu tygodniowego, zaokrąglone i z szumem, bez identyfikatorów; ten sam kanał co korpus (ADR-017) | test: paczka telemetrii nie zawiera identyfikatorów ani treści; szum i zaokrąglenie zgodne z ustawieniem |
 
 Po wydaniu: wspólny korpus i telemetria (E11, E12) oraz integracja z Google Calendar (osobna iteracja).
+
+## Wydanie open source
+
+Repozytorium jest publiczne od początku, ale ogłoszenie i pierwsze wydanie (E10) wymagają poniższej listy. Dokumentacja jest wyłącznie po polsku, bo Librus działa tylko w polskich szkołach. Punkty ✅ są zrobione.
+
+| | Punkt | Szczegóły |
+|---|---|---|
+| ✅ | Zastrzeżenie o niezależności | README: projekt nieoficjalny, niezwiązany z Librus Sp. z o.o.; znaki towarowe tylko do opisu |
+| ✅ | Stan projektu w README | sekcja „Na jakim etapie jest projekt” z linkiem do roadmapy, aktualizowana po każdym etapie |
+| ✅ | `SECURITY.md` | jak zgłaszać podatności (prywatnie, bez danych dzieci), co jest w zakresie, czas reakcji |
+| ✅ | `CONTRIBUTING.md` | uruchomienie testów, trzy poziomy testów, logowanie i obsługa błędów, dane testowe tylko wymyślone, docstringi po polsku, ADR-y |
+| ✅ | Metadane paczki | autorzy, adresy repo i zgłoszeń, klasyfikatory w `pyproject.toml` |
+| | `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 po polsku, z kanałem zgłoszeń (adres e-mail albo formularz) wskazanym przez właściciela repo |
+| | Ustawienia repo | ochrona gałęzi `main`, wymagane CI, skanowanie sekretów z blokadą pushy, alerty Dependabota, prywatne zgłoszenia podatności |
+| | CI na pull requestach | testy (z progiem pokrycia), `ruff`, `mypy`, gitleaks, kontrola prywatnych ścieżek; bez sekretów i bez dostępu do Librusa |
+| | Szablony zgłoszeń | „zmiana w Librusie” (moduł i klasa błędu z logu, bez danych), „przegapione odstępstwo” (treść po anonimizacji), „błędny alarm” |
+| | `CHANGELOG.md` i tag `v0.1.0` | lista zmian, hash obrazu kontenera |
+| | README z instalacją | krok po kroku dla rodzica: Telegram, sekrety, Podman lub Docker, pierwsze uruchomienie, wyłączenie korpusu |
+| | Licencja zależności | `librus-apix` ma niespójną licencję (plik `LICENSE` i GitHub: GPL-3.0, metadane paczki: MIT); zostajemy przy GPL-3.0-or-later (ADR-009), zgłosić niespójność autorom biblioteki |
+| | Nagłówki SPDX | `SPDX-License-Identifier: GPL-3.0-or-later` w plikach źródłowych |
+| | Przegląd prawny korpusu | przed włączeniem E11 (ADR-018); do tego czasu README opisuje korpus jako planowany |
+| | Obrazek w README | mem ze znakiem wodnym serwisu zostaje (decyzja właściciela); prawa autorskie do sprawdzenia przy wydaniu |
 
 ## Ryzyka
 
