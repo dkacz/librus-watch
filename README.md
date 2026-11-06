@@ -61,6 +61,7 @@ Godziny, kanały i to, kto dostaje które powiadomienia, zmienisz w konfiguracji
 - **Wiadomości oznaczone jako przeczytane.** Librus oznacza wiadomość jako przeczytaną, gdy otworzy ją program. Program pobiera treść każdej wiadomości tylko raz.
 - **Regulamin Librusa.** Automatyczne logowanie do Synergii nie jest oficjalnie wspierane przez Librusa. Program loguje się rzadko (domyślnie co godzinę w ciągu dnia), ma limit nieudanych prób i po błędzie logowania czeka do następnego dnia. Używasz go na własną odpowiedzialność.
 - **Tylko odczyt.** Program niczego w Librusie nie wysyła ani nie zmienia.
+- **Wspólny korpus przykładów: domyślnie włączony (opt-out).** Gdy ta funkcja powstanie (etap E11, jeszcze jej nie ma), program będzie domyślnie i automatycznie wysyłał zanonimizowane przykłady tekstów z ocenami („ten alarm był trafny”, „to przegapiliśmy”), żeby poprawiać działanie u wszystkich użytkowników. Wysyłane są tylko teksty po anonimizacji: imiona, nazwiska, nazwy szkoły, klasy i miejsc, telefony i adresy są zamieniane na znaczniki, daty na określenia względne („jutro”, „czwartek”), a przykład budzący wątpliwości nie jest wysyłany wcale. Nigdy nie są wysyłane surowe wiadomości, loginy ani dane konta. Przed pierwszą wysyłką program wyświetli o tym informację, a każdą wysłaną paczkę zobaczysz w lokalnym dzienniku. **Wyłączenie:** `feedback.share_corpus: false` w `config.yaml`. Telemetria zbiorcza (same liczby, np. ile alarmów było trafnych) będzie działać tylko po włączeniu (opt-in).
 
 ## Instalacja
 

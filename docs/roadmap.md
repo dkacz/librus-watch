@@ -1,6 +1,6 @@
 # Plan realizacji
 
-Plan budowy programu od fundamentu do pierwszego wydania. Decyzje, na których się opiera, są w [`decisions.md`](decisions.md), projekt obsługi modeli w [`llm.md`](llm.md), a wyniki rozpoznania danych Librusa w [`librus-apix-notes.md`](librus-apix-notes.md).
+Plan budowy programu od fundamentu do pierwszego wydania. Decyzje, na których się opiera, są w [`decisions.md`](decisions.md), projekt obsługi modeli w [`llm.md`](llm.md), pętla zwrotna w [`feedback.md`](feedback.md), a wyniki rozpoznania danych Librusa w [`librus-apix-notes.md`](librus-apix-notes.md).
 
 ## Założenia
 
@@ -99,11 +99,14 @@ Każdy etap kończy się testami (sekcja „Testy”), spełnieniem zasad z sekc
 | **E5c Optymalizacja i wybór modelu** | triage wsadowy tym samym modelem, wsady krótkich tekstów, opcjonalny wybór już załadowanego modelu z listy, pseudonimizacja dla modelu zdalnego; porównanie kandydatów na zestawie oceny | raport z oceny: trafienia, pominięcia, fałszywe pozycje, czas i tokeny per model i wariant; triage nie gubi żadnej pozycji z zestawu oceny; wybrany model domyślny zapisany w ADR |
 | **E6 Powiadomienia** | `alerts.py`, `notify.py` | cisza w zwykły dzień, wieczorem tylko nietypowe, rano tylko zmiany, od razu pilne, nic w godzinach ciszy; „ZMIANA”; brak powtórek; `test-notify` dociera; testy integracyjne z lokalną atrapą Apprise (treść, escapowanie, routing po tagach); awaria jednego kanału nie blokuje pozostałych, adres kanału nigdy w logu |
 | **E7 Pętla i polecenia** | `scheduler.py`, `cli.py`, limity prób (ADR-007), raport o awarii, `doctor` | `run-once --dry-run` daje sensowne pozycje, drugi przebieg nic nie powtarza; złe hasło: jedna próba, przerwa do jutra, raport; testy end-to-end przez CLI na atrapach serwerów: zwykły dzień (cisza), dzień z odstępstwami, zmiana (ZMIANA), awaria modułu, zły login, restart w trakcie; wyjście programu w e2e bez sekretów, imion i treści z danych testowych |
+| **E7a Pętla zwrotna lokalna** | zdarzenia oceny (`confirmed`, `wrong`, `missed`, `late`), `librus-watch review`, audyt w cieniu (próbka odrzuconych przez sito i triage), zgodność odstępstw wyliczonych i odczytanych, raport tygodniowy i metryki lokalne, biblioteka przykładów w prompcie; opcjonalnie bot Telegrama z przyciskami (ADR-016, `docs/feedback.md`) | testy jednostkowe ocen, audytu i doboru przykładów; integracyjne: pominięcie z audytu trafia do przeglądu, ocena trafia do lokalnego zestawu oceny, zmiana promptu gorsza na tym zestawie jest odrzucana; w metrykach i raporcie brak treści |
 | **E8 Kontener** | `Containerfile` (obraz bazowy po digeście, bez roota, system plików tylko do odczytu), Quadlet, Compose | budowa na serwerze domowym; restart nie gubi stanu; w logach brak sekretów, nazwisk i treści; zestaw end-to-end uruchomiony w zbudowanym kontenerze |
 | **E9 Pilot** | tydzień pracy z `--dry-run` i powiadomieniami do jednej osoby, codzienne porównanie z osią czasu w aplikacji Librus | żadne odstępstwo widoczne na osi czasu nie zostało przegapione, mało fałszywych alarmów |
 | **E10 Wydanie** | README (instalacja krok po kroku, przykłady), uzupełnione ADR | — |
+| **E11 Wspólny korpus (opt-out)** | domyślnie włączona automatyczna wysyłka zanonimizowanych, ocenionych przykładów (`feedback.share_corpus`, ADR-018): anonimizacja lokalna (słowniki, NER dla polskiego, uogólnienie, „w razie wątpliwości odrzuć”), informacja przy pierwszym uruchomieniu przed pierwszą wysyłką, lokalny dziennik wysłanych przykładów, endpoint zbierania z uwierzytelnieniem i limitem, przegląd po stronie korpusu, wydania z podpisaną paczką zestawu oceny, przykładów i reguł; przegląd prawny przed włączeniem | testy anonimizacji na wymyślonych tekstach z imionami, adresami, telefonami i rzadkimi wydarzeniami: zero przecieków; przykład ryzykowny odrzucany; `share_corpus: false` zatrzymuje wysyłkę od następnego cyklu; bez informacji przy pierwszym uruchomieniu nic nie wychodzi; dziennik zawiera dokładnie to, co wysłano; wkład obniżający wynik na zestawie bazowym nie wchodzi do wydania |
+| **E12 Telemetria zbiorcza (opt-in)** | liczby z raportu tygodniowego, zaokrąglone i z szumem, bez identyfikatorów; ten sam kanał co korpus (ADR-017) | test: paczka telemetrii nie zawiera identyfikatorów ani treści; szum i zaokrąglenie zgodne z ustawieniem |
 
-Po wydaniu: integracja z Google Calendar (osobna iteracja).
+Po wydaniu: wspólny korpus i telemetria (E11, E12) oraz integracja z Google Calendar (osobna iteracja).
 
 ## Ryzyka
 

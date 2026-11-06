@@ -149,3 +149,32 @@ Oceny i komentarze do ocen wybiera się niezależnie:
 - Stan ochrony (licznik, blokada, `DeviceCookie`) jest zapisywany zawsze; przebieg bez zapisu nie zapisuje tylko danych z Librusa.
 
 **Skutki.** Kolejne logowania wyglądają na to samo urządzenie, a błąd po stronie Librusa nie zamienia się w serię prób. Ceną jest możliwość przegapienia dnia, gdy odmowa była jednorazowa; wtedy pomaga `--force` albo raport o awarii.
+
+## ADR-016: Lokalna pętla zwrotna: oceny, audyt w cieniu, zestaw oceny z prawdziwych przypadków
+
+**Kontekst.** Bez informacji zwrotnej nie wiadomo, ile odstępstw program przegapia (pominięcia) ani ile alarmów jest zbędnych. Pominięć nikt nie zgłasza sam, bo nie wie, że coś miało przyjść. Dostrajanie wag modelu wymaga dużego, sprawdzonego zbioru, którego na starcie nie ma.
+
+**Decyzja.** Program zapisuje zdarzenia oceny (`confirmed`, `wrong`, `missed`, `late`) z powiadomień i z przeglądu w CLI. Pominięcia wykrywa też sam: losowa próbka tekstów odrzuconych przez sito i triage idzie codziennie do modelu w cieniu (bez powiadomień), rozjazd między odstępstwami wyliczonymi a odczytanymi przez model trafia do przeglądu, a teksty ze słowami alarmowymi bez pozycji również. Ocenione przypadki tworzą lokalny zestaw oceny (bramka dla każdej zmiany promptu, modelu i reguł) i bibliotekę przykładów dokładanych do promptu za stałym prefiksem. Dane zostają w katalogu danych. Szczegóły: `docs/feedback.md`.
+
+**Skutki.** Trafność jest mierzona na prawdziwych danych, a poprawki nie psują tego, co działało. Audyt w cieniu kosztuje kilka zapytań do modelu dziennie. Bot Telegrama z przyciskami jest osobnym, opcjonalnym modułem, bo Apprise tylko wysyła.
+
+## ADR-017: Wspólny korpus i telemetria zbiorcza tylko na zgodę, po anonimizacji i przeglądzie
+
+**Kontekst.** Pomyłki jednej rodziny pomagają wszystkim, jeśli trafią do wspólnego zestawu oceny, przykładów i reguł. Teksty ze szkoły zawierają jednak dane dzieci, rodziców i nauczycieli, także osób spoza rodziny (np. listy laureatów konkursów).
+
+**Decyzja.** Udział jest domyślnie wyłączony. Na zgodę program przygotowuje lokalnie paczkę ocenionych przykładów po anonimizacji (słowniki Librusa, wykrywanie danych osobowych dla polskiego, uogólnienie dat i miejsc, odrzucenie przykładów ryzykownych), pokazuje każdy przykład przed i po i wysyła tylko zatwierdzone. Kanał na start to pull request do publicznego repo korpusu, bez własnego serwera. Telemetria zbiorcza to wyłącznie liczby z raportu tygodniowego, zaokrąglone i z szumem, bez identyfikatorów szkoły, klasy i dziecka. Wkład wchodzi do wydania programu (zestaw oceny, przykłady, reguły, prompty) dopiero po przeglądzie i gdy nie obniża wyniku na zestawie bazowym; paczka jest podpisana i przypięta hashem. Przed uruchomieniem korpusu potrzebny jest przegląd prawny (RODO, dane dzieci, regulamin Librusa).
+
+**Skutki.** Każdy użytkownik zyskuje na pomyłkach innych bez wysyłania danych, z których da się kogoś rozpoznać. Ceną jest ręczny przegląd po obu stronach i wolniejszy obieg (wydania zamiast synchronizacji na żywo). Do czasu przeglądu prawnego działa wyłącznie pętla lokalna.
+
+## ADR-018: Wspólny korpus domyślnie włączony (opt-out); zastępuje ADR-017 w tym punkcie
+
+**Kontekst.** ADR-017 zakładał udział w korpusie na zgodę i ręczne zatwierdzanie każdej paczki. Przy takim ustawieniu korpus rośnie zbyt wolno, żeby realnie poprawiać sito, przykłady i reguły dla wszystkich.
+
+**Decyzja.** Wysyłanie zanonimizowanych, ocenionych przykładów do wspólnego korpusu jest domyślnie włączone (`feedback.share_corpus: true`) i działa automatycznie. Wyłączenie jednym ustawieniem w konfiguracji zatrzymuje wysyłkę od następnego cyklu. Pozostałe zasady ADR-017 obowiązują bez zmian: tylko przykłady po anonimizacji (słowniki Librusa, wykrywanie danych osobowych dla polskiego, uogólnienie dat i miejsc), nigdy surowe teksty ani metadane szkoły, klasy i dziecka; wkład wchodzi do wydań dopiero po przeglądzie i bez obniżenia wyniku na zestawie bazowym. Telemetria zbiorcza (E12) zostaje na zgodę. Przy opt-out obowiązkowe są dodatkowo:
+- jawna informacja w README i przy pierwszym uruchomieniu, przed pierwszą wysyłką, z instrukcją wyłączenia;
+- anonimizator „w razie wątpliwości odrzuć”: przykład z jakimkolwiek niewyjaśnionym słowem od wielkiej litery, liczbą wyglądającą na telefon, numer konta lub adres nie jest wysyłany;
+- lokalny dziennik wysłanych przykładów (dokładnie to, co wyszło) i polecenie do jego podglądu;
+- kanał zbierania (endpoint) z uwierzytelnieniem paczki i limitem, zaprojektowany w E11, bo automatyczna wysyłka nie może opierać się na pull requestach z konta użytkownika;
+- przegląd prawny (RODO, dane dzieci, regulamin Librusa) przed włączeniem funkcji w wydaniu.
+
+**Skutki.** Korpus rośnie szybciej, a każdy użytkownik szybciej korzysta z cudzych pomyłek. Rośnie ryzyko: anonimizacja wolnego tekstu nie jest doskonała, a domyślne włączenie przy danych dotyczących dzieci może wymagać innej podstawy prawnej niż zgoda; przegląd prawny może wymusić powrót do opt-in. Do czasu wdrożenia E11 nic nie jest wysyłane.
