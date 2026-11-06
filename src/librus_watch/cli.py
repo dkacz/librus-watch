@@ -92,6 +92,14 @@ def format_report(r: SyncReport) -> str:
             f"z cache {len(p.cached)}, odłożone {p.deferred}, bez treści {p.waiting_body}; "
             f"sito odrzuciło: {dropped}"
         )
+    if r.llm is not None:
+        m = r.llm
+        rejected = sum(m.rejected.values())
+        lines.append(
+            f"  model: przeczytane {m.read}, z cache {m.from_cache}, złe odpowiedzi {m.failed}, "
+            f"odrzucone pozycje {rejected}, zapytania {m.requests}, tokeny {m.tokens}"
+            + (f"; przerwane: {m.stopped}" if m.stopped else "")
+        )
     label = "odstępstwa" if r.dry_run else "nowe odstępstwa"
     lines.append(
         f"  {label}: {len(r.findings)}" + (f", wycofane: {r.retracted}" if r.retracted else "")

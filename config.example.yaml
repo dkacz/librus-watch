@@ -63,6 +63,9 @@ llm:
   min_confidence: 0.5
   max_attempts_per_message: 3
   api_key_required: false  # true dla API zdalnych (sekret LLM_API_KEY)
+  cold_start_timeout_seconds: 180  # pierwsze zapytanie w cyklu: model może się ładować
+  disable_thinking: true   # modele „myślące” pod schematem JSON dają puste odpowiedzi
+  circuit_breaker: 3       # po tylu kolejnych błędach połączenia odczyt czeka do kolejnego cyklu
   backfill_days: 14        # starsze teksty bez aktualnego terminu sito odrzuca bez modelu
   daily_requests: 200      # dzienny limit zapytań do modelu
   daily_tokens: 400000     # dzienny limit tokenów (szacowanych)

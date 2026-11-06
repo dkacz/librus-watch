@@ -16,9 +16,10 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from librus_watch.baseline import bells_from, day_norm
-from librus_watch.config import Config, ContentType, Credentials
+from librus_watch.config import Config, ContentType, Credentials, llm_api_key
 from librus_watch.deviations import day_findings, dedupe, entry_findings, plan_change_findings
 from librus_watch.errors import AuthError, SchemaError, TransientError
+from librus_watch.extract import ChatClient, ReadReport, make_client, read_queue
 from librus_watch.librus import messages
 from librus_watch.librus.adapter import (
     LOOKUP_MODULES,
@@ -143,6 +144,7 @@ class SyncReport:
         retracted: Ile wcześniejszych odstępstw wycofano (już nieaktualne).
         removed: Ile wpisów zniknęło z kompletnie pobranych modułów (ADR-008).
         reading: Plan odczytu tekstów przez model (sito, cache, kolejka, budżet).
+        llm: Wynik odczytu przez model (gdy włączony i nie dry-run).
     """
 
     child: str
@@ -158,6 +160,7 @@ class SyncReport:
     retracted: int = 0
     removed: int = 0
     reading: ReadingPlan | None = None
+    llm: ReadReport | None = None
 
     @property
     def ok(self) -> bool:
@@ -312,6 +315,7 @@ def sync_child(
     *,
     now: datetime,
     dry_run: bool = False,
+    llm_client: ChatClient | None = None,
 ) -> SyncReport:
     """Pobiera, zamienia i zapisuje dane jednego dziecka.
 
@@ -321,7 +325,8 @@ def sync_child(
         session: Zalogowana sesja tego dziecka.
         store: Baza.
         now: Bieżący moment (lokalny czas szkoły).
-        dry_run: Bez zapisu i bez pobierania treści wiadomości.
+        dry_run: Bez zapisu, bez pobierania treści wiadomości i bez modelu.
+        llm_client: Klient modelu (domyślnie z konfiguracji; podmieniany w testach).
 
     Returns:
         Raport z liczbami.
@@ -408,7 +413,14 @@ def sync_child(
         today,
         now,
     )
-    report.findings = [f for f in detection.findings if store.add_finding(f, now)]
+    found = list(detection.findings)
+    if cfg.llm.enabled and (report.reading.queue or report.reading.cached):
+        if llm_client is None:
+            key = llm_api_key(cfg.llm)
+            llm_client = make_client(cfg.llm, key.get_secret_value() if key else None)
+        report.llm = read_queue(report.reading, store, cfg.llm, now, llm_client)
+        found += report.llm.findings
+    report.findings = [f for f in found if store.add_finding(f, now)]
     current_ids = {f.identity for f in detection.findings}
     for old_finding in store.child_findings(child, detection.origins, today, detection.day_to):
         if old_finding.identity not in current_ids:

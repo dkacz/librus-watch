@@ -260,6 +260,12 @@ class LLMConfig(Strict):
     """Pozycje z niższą pewnością modelu są odrzucane."""
     max_attempts_per_message: Annotated[int, Field(ge=1, le=10)] = 3
     """Po tylu nieudanych analizach wiadomość jest pomijana (i odnotowana w logu)."""
+    cold_start_timeout_seconds: Annotated[float, Field(ge=5, le=900)] = 180
+    """Limit czasu pierwszego zapytania w cyklu (model może się dopiero ładować)."""
+    disable_thinking: bool = True
+    """Wyłącza tryb myślenia modeli, które go mają (pod schematem JSON dają puste odpowiedzi)."""
+    circuit_breaker: Annotated[int, Field(ge=1, le=20)] = 3
+    """Po tylu kolejnych błędach połączenia odczyt w tym cyklu jest przerywany."""
     backfill_days: Annotated[int, Field(ge=1, le=120)] = 14
     """Teksty starsze niż tyle dni (i bez terminu w przyszłości) sito odrzuca bez modelu."""
     keywords: list[str] = Field(default_factory=lambda: list(DEFAULT_KEYWORDS))
