@@ -1,0 +1,33 @@
+# Quadlet: panel admina ze statystykami usługi (ADR-025), ~/.config/containers/systemd/
+# Ten sam obraz co usługa; panel czyta tylko migawkę liczb (now.json, daily.jsonl),
+# nie ma dostępu do bazy ani do sekretów. W config.yaml usługi: stats.dir: /stats,
+# a w librus-watch.container dodaj: Volume=%h/.local/share/librus-watch-stats:/stats:z
+# (małe `z`: katalog dzielą dwa kontenery, więc etykieta SELinux musi być współdzielona)
+# Do wystawienia na zewnątrz: tunel z uwierzytelnieniem na port 8092 (panel nie ma własnego logowania).
+
+[Unit]
+Description=librus-watch: panel admina (tylko do odczytu)
+
+[Container]
+ContainerName=librus-admin
+Image=localhost/librus-watch:<wersja>
+Exec=admin-panel --port 8092 --stats-dir /stats --inbox-dir /inbox
+# tylko loopback hosta: tunel kieruje na http://127.0.0.1:8092
+PublishPort=127.0.0.1:8092:8092
+UserNS=keep-id:uid=10001,gid=10001
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+Environment=TZ=Europe/Warsaw
+Volume=%h/.local/share/librus-watch-stats:/stats:ro,z
+# skrzynka ocen (ADR-026): jedyny katalog z zapisem; ten sam co w usłudze (Volume=...-inbox:/inbox:z)
+Volume=%h/.local/share/librus-watch-inbox:/inbox:z
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

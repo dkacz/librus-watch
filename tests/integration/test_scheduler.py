@@ -184,3 +184,17 @@ def test_cli_run_once_dry_run(
     assert cli.main(["--config", str(config_file), "run-once"]) == 0  # pominięte, bez próby
     assert fake_librus.calls["login"] == 2
     _ = time
+
+
+def test_run_once_writes_stats_snapshot(
+    fake_librus: FakeLibrus, config_file: Path, channels: Channels
+) -> None:
+    cfg, store = setup(config_file)
+    scheduler.run_once(cfg, store, NOW)
+    out = cfg.data_dir / "stats"
+    now_json = __import__("json").loads((out / "now.json").read_text())
+    assert [c["id"] for c in now_json["children"]] == ["ania"]
+    assert now_json["last_cycle"] == NOW.isoformat()
+    day = __import__("json").loads((out / "daily.jsonl").read_text().splitlines()[-1])
+    assert day["day"] == "2026-11-06" and day["cycles"]["n"] == 1
+    store.close()

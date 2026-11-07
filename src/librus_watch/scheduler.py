@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -36,11 +37,14 @@ from librus_watch.feedback import (
     write_metrics,
 )
 from librus_watch.lock import InstanceLock
+from librus_watch.records import process_inbox, write_records
 from librus_watch.secret_env import get_secret
+from librus_watch.stats import note_cycle, write_stats
 from librus_watch.store import Store
 from librus_watch.sync import LoginBlocked, SyncReport, login_child, sync_child
 from librus_watch.telegram import chat_ids, http_call, process_updates, send_questions
 from librus_watch.telemetry import note_module_errors, send_weekly
+from librus_watch.whatsapp import serve_webhook
 
 log = logging.getLogger(__name__)
 TICK_SECONDS = 60
@@ -108,6 +112,7 @@ def run_once(
     Returns:
         Raport przebiegu.
     """
+    started = time.monotonic()
     report = CycleReport()
     for child in cfg.children:
         st = store.fetch_state(child.id, now.date())
@@ -154,6 +159,9 @@ def run_once(
                 "findings_new": sum(len(r.findings) for r in report.reports),
             },
         )
+        note_cycle(store, now, time.monotonic() - started)
+        write_stats(cfg, store, now)
+        write_records(cfg, store, now)
     log.info(
         "przebieg: %d dzieci pobranych, %d pominiętych, %d błędów, pilnych wysłanych %d",
         len(report.reports),
@@ -285,9 +293,12 @@ def run_service(
     with InstanceLock(cfg.data_dir):
         store = Store(cfg.data_dir)
         store.set_meta("service_started", clock().isoformat())
+        write_records(cfg, store, clock())  # strumień od razu po starcie, bez czekania na cykl
         bot = threading.Thread(target=telegram_loop, args=(cfg, stop), daemon=True)
+        hook = threading.Thread(target=serve_webhook, args=(cfg, stop, clock), daemon=True)
         if start_telegram:
             bot.start()
+            hook.start()
         log.info("usługa: start, %d dzieci", len(cfg.children))
         if cfg.telemetry.enabled and not store.get_meta("telemetry_notice"):
             deliver_text(
@@ -325,6 +336,7 @@ def run_service(
                 daily_feedback(cfg, store, now)
                 send_weekly(cfg, store, now)
                 send_corpus(cfg, store, now)
+                process_inbox(cfg, store, now)
                 stop.wait(tick)
         finally:
             stop.set()

@@ -31,7 +31,7 @@ LABEL org.opencontainers.image.title="librus-watch" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
       org.opencontainers.image.source="https://github.com/hretheum/librus-watch"
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home app \
- && install -d -o app -g app -m 700 /data
+ && install -d -o app -g app -m 700 /data /stats /inbox
 COPY --from=build /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     LIBRUS_WATCH_CONFIG=/config/config.yaml

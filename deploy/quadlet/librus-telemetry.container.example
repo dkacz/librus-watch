@@ -16,7 +16,7 @@ UserNS=keep-id:uid=10001,gid=10001
 ReadOnly=true
 DropCapability=ALL
 NoNewPrivileges=true
-Volume=%h/.local/share/librus-telemetry:/data:Z
+Volume=%h/.local/share/librus-telemetry:/data:z
 LogDriver=journald
 
 [Service]

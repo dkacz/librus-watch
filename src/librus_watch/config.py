@@ -416,6 +416,18 @@ DEFAULT_PRIORITIES: dict[Kind, Priority] = {
 """Domyślne wagi: wysokie dla tego, co zmienia poranek albo wymaga działania przed wyjściem."""
 
 
+class WhatsAppConfig(Strict):
+    """Bot WhatsAppa (ADR-024); działa, gdy są sekrety `WHATSAPP_*`."""
+
+    template: str = "librus_pozycja"
+    """Szablon pozycji: 3 parametry treści i 2 przyciski szybkiej odpowiedzi."""
+    info_template: str = "librus_info"
+    """Szablon komunikatu: 1 parametr treści."""
+    language: str = "pl"
+    api_version: str = "v21.0"
+    webhook_port: Annotated[int, Field(ge=1024, le=65535)] = 8091
+
+
 class TelemetryConfig(Strict):
     """Telemetria zbiorcza (ADR-022, opt-out)."""
 
@@ -442,6 +454,24 @@ class FeedbackConfig(Strict):
     """Adres odbiornika korpusu (HTTPS; HTTP tylko dla nazw wewnętrznych); pusty: nic."""
 
 
+class StatsConfig(Strict):
+    """Migawka liczb dla panelu admina (`stats.py`): bez treści i bez imion."""
+
+    enabled: bool = True
+    """Czy zapisywać `now.json` i `daily.jsonl` po każdym cyklu."""
+    dir: Path | None = None
+    """Katalog migawki; domyślnie `data_dir/stats`."""
+    records: bool = False
+    """Strumień rekordów po analizie modelu z PEŁNĄ TREŚCIĄ (`records.jsonl`) i oceny z panelu.
+
+    Domyślnie wyłączone: treści szkolne trafiają wtedy do pliku czytanego przez panel
+    (ADR-026). Włączenie jest decyzją właściciela instancji."""
+    records_days: Annotated[int, Field(ge=1, le=60)] = 14
+    """Ile dni wstecz (od analizy) pokazywać w strumieniu rekordów."""
+    inbox_dir: Path | None = None
+    """Katalog skrzynki ocen z panelu; domyślnie `data_dir/inbox`."""
+
+
 class Config(Strict):
     """Cała konfiguracja programu."""
 
@@ -460,6 +490,8 @@ class Config(Strict):
     alerts: AlertsConfig = AlertsConfig()
     feedback: FeedbackConfig = FeedbackConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    stats: StatsConfig = StatsConfig()
+    whatsapp: WhatsAppConfig = WhatsAppConfig()
 
     @model_validator(mode="after")
     def _consistent(self) -> Config:

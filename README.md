@@ -25,6 +25,8 @@ _Stan na 2026-11-06 (po etapach E11 i E12). Pełny plan z kryteriami odbioru: [d
 | Działanie w tle: pobieranie co godzinę w aktywnych godzinach, podsumowanie wieczorne i poranne o stałych porach, pilne od razu, potwierdzanie kliknięć w Telegramie w kilka sekund, raport, gdy coś przestaje działać | gotowe (`librus-watch run`) |
 | Uczenie się na ocenach: przyciski w Telegramie, przegląd w terminalu (`librus-watch review`), codzienne sprawdzanie w tle tekstów odrzuconych przez filtr, cotygodniowe pytania i raport, zmiany modelu i promptu sprawdzane na Twoich ocenionych przypadkach (`librus-watch eval`) | gotowe |
 | Kontener na serwer domowy (Podman, Quadlet): bez kodu źródłowego w obrazie, bez uprawnień, system plików tylko do odczytu, stan zachowany po restarcie | gotowe (instrukcja krok po kroku dla rodzica: przy wydaniu) |
+| Panel admina ze statystykami własnej instalacji (osobny kontener, tylko do odczytu, same liczby): zdrowie usługi i kont, pozycje, oceny, sito, model, błędy modułów | gotowe (`librus-watch admin-panel`) |
+| Strumień rekordów po analizie modelu w panelu (opcjonalnie, z pełną treścią) z ocenami „trafne / nietrafne / brak” jednym kliknięciem | gotowe (`stats.records`) |
 | Telemetria zbiorcza (opt-out): raz w tygodniu same liczby, z odbiornikiem projektu | gotowe |
 | Wspólny korpus przykładów (opt-out): ocenione przypadki po anonimizacji, raz dziennie, z dziennikiem wysłanych | gotowe (przegląd prawny przed publicznym odbiornikiem) |
 | Tydzień próbny i pierwsze wydanie | planowane |
@@ -101,6 +103,7 @@ Do uzupełnienia, gdy powstanie obraz kontenera. Wzorce już są:
 - Python 3.12, [`uv`](https://docs.astral.sh/uv/), scraper [`librus-apix`](https://github.com/poroknights/librus-apix), Apprise, SQLite.
 - Decyzje projektowe: [`docs/decisions.md`](docs/decisions.md). Plan realizacji: [`docs/roadmap.md`](docs/roadmap.md).
 - Jak pomóc: [`CONTRIBUTING.md`](CONTRIBUTING.md). Zgłaszanie podatności: [`SECURITY.md`](SECURITY.md).
+- Panel statystyk: `librus-watch admin-panel` w osobnym kontenerze (przykłady w `deploy/`), czyta tylko migawkę liczb zapisywaną przez usługę (`stats.dir`), bez bazy i sekretów; wystawiaj go wyłącznie przez tunel z uwierzytelnieniem.
 - Sekrety tylko przez zmienne środowiskowe lub pliki (`NAZWA_FILE`). Plik konfiguracyjny odrzuca klucze wyglądające na sekrety, a wartości sekretów są wycinane z logów.
 
 ### Rozwój

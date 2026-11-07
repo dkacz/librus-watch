@@ -121,3 +121,14 @@ feedback:
 telemetry:
   enabled: true            # false wyłącza wysyłkę
   endpoint: https://tele.pamb.uk/v1/telemetry   # odbiornik projektu; pusty: nic nie wychodzi
+
+# Migawka liczb dla panelu admina: po każdym cyklu `now.json` i `daily.jsonl` (same liczby,
+# bez treści i imion; dziecko to id). Domyślnie w katalogu danych, w podkatalogu stats.
+# Panel (librus-watch admin-panel) dostaje tylko ten katalog: w kontenerze ustaw dir: /stats
+# i zamontuj go osobno, żeby panel nie widział bazy.
+stats:
+  enabled: true
+  # records: true      # strumień rekordów z PEŁNĄ TREŚCIĄ i oceny z panelu (ADR-026), domyślnie wyłączone
+  # records_days: 14
+  # inbox_dir: /inbox  # skrzynka ocen z panelu (jedyny katalog z zapisem dla panelu)
+  # dir: /data/stats

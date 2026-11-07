@@ -226,3 +226,27 @@ Przesiew stosowany do wszystkich rodzajów tekstów gubił na każdym modelu od 
 **Decyzja.** Korpus idzie tym samym kanałem co telemetria (ADR-022): POST JSON na `feedback.corpus_endpoint`, raz dziennie, do tego samego odbiornika (`librus-watch telemetry-receiver`, ścieżka `/v1/corpus`). Odbiornik przyjmuje tylko paczki zgodne ze schematem (rodzaj tekstu, ocena, tekst po anonimizacji do 1500 znaków, oczekiwane pozycje z dniem względnym), do 128 KB, i dopisuje je do `corpus.jsonl`. Przykład wychodzi raz, a program zapisuje dokładnie wysłaną paczkę w lokalnym `corpus_sent.jsonl`. Wysyłka ruszy dopiero po informacji przy pierwszym uruchomieniu. Uwierzytelnienie paczek i limity zapytań dochodzą razem z publicznym adresem odbiornika (tunel z HTTPS).
 
 **Skutki.** Jeden odbiornik i jeden format dla obu strumieni. Dopóki odbiornik jest tylko w sieci kontenerów, zbiera dane z tej jednej instalacji; publiczne udostępnienie wymaga przeglądu prawnego (ADR-018).
+
+## ADR-024: Bot WhatsAppa przez oficjalne Cloud API, obok Telegrama
+
+**Kontekst.** Część rodziców używa WhatsAppa, nie Telegrama. Nieoficjalne biblioteki udające aplikację WhatsApp łamią regulamin i grożą blokadą numeru.
+
+**Decyzja.** WhatsApp działa wyłącznie przez WhatsApp Business Platform (Cloud API). Każda pozycja powiadomienia wychodzi jako zatwierdzony szablon z przyciskami szybkiej odpowiedzi („Trafne”, „Błędne”), których ładunek niesie skrót tożsamości pozycji, tak jak w Telegramie (ADR-019). Po „Błędne” program wysyła listę powodów (w oknie 24 h, bez szablonu). Wiadomość rodzica zaczynająca się od „brak” jest zgłoszeniem pominięcia. Odpowiedzi przychodzą na webhook usługi (publiczny HTTPS przez tunel), sprawdzany podpisem `X-Hub-Signature-256`; program odpowiada tylko numerom z listy dozwolonych. Token dostępu, identyfikator numeru, sekret aplikacji i token weryfikacji webhooka są sekretami.
+
+**Skutki.** Rodzic może wybrać kanał. Wiadomości szablonowe są płatne (za każdą pozycję z przyciskami), bot wymaga konta Meta Business i osobnego numeru, a szablon musi przejść zatwierdzenie Mety.
+
+## ADR-025: Panel admina czyta migawkę liczb, nie bazę, i działa w osobnym kontenerze
+
+**Kontekst.** Operator chce widzieć zdrowie usługi i statystyki (cykle, pozycje, oceny, sito, model, błędy modułów). Baza jest w trybie WAL, więc drugi kontener z wolumenem tylko do odczytu jej nie otworzy, a zawiera treści wiadomości, notatki rodziców i nazwiska nauczycieli (ADR-006, ADR-011).
+
+**Decyzja.** Po każdym cyklu usługa zapisuje w osobnym katalogu (`stats.dir`, domyślnie `data_dir/stats`) dwa pliki z samymi liczbami: `now.json` (stan bieżący) i `daily.jsonl` (jedna linia na dobę). Dziecko występuje tylko jako `id` z konfiguracji. Panel (`librus-watch admin-panel`) działa w osobnym kontenerze z tego samego obrazu, montuje tylko ten katalog z `:ro`, nie ma sekretów ani dostępu do bazy, odpowiada wyłącznie na GET, nie loguje adresów ani parametrów zapytań i nie ładuje zasobów z zewnątrz. Nie ma własnego logowania: wystawia się go wyłącznie na loopbacku hosta, a dostęp z zewnątrz zapewnia tunel z uwierzytelnieniem. Analiza danych odbiornika telemetrii i korpusu nie jest częścią tego repozytorium.
+
+**Skutki.** Panel nie może pokazać treści ani nazwisk nawet przy błędzie w kodzie, a jego awaria nie zatrzymuje usługi. Migawka ma wersję schematu (`schema_version`); panel odrzuca inną. Ceną jest dodatkowy kontener i wolumen oraz brak danych, których usługa nie zapisuje (np. błędy wysyłki powiadomień).
+
+## ADR-026: Strumień rekordów z pełną treścią i oceny z panelu (opt-in)
+
+**Kontekst.** Właściciel instancji chce w panelu widzieć teksty przeczytane przez model razem z wynikiem (alert wysłany, pozycja bez alertu, brak pozycji) i oceniać je jednym kliknięciem: „trafne”, „nietrafne” albo „brak” (powinien być alert). Do oceny „brak” trzeba widzieć treść. ADR-025 zakładał panel bez treści i tylko do odczytu.
+
+**Decyzja.** Funkcja jest wyłączona domyślnie i włączana ustawieniem `stats.records: true`. Wtedy usługa zapisuje w katalogu statystyk `records.jsonl`: ostatnie `stats.records_days` dni, najwyżej 300 tekstów, z **pełną treścią**, pozycjami, statusem alertu i dotychczasową oceną. Panel czyta ten plik i nadal nie ma dostępu do bazy. Oceny panel zapisuje jako pliki w osobnej skrzynce (`stats.inbox_dir`, jedyny katalog z zapisem dla panelu); usługa w każdym obrocie pętli waliduje je (znane działanie, istniejąca pozycja albo tekst, powód z listy, rozmiar do 4 KB, bez dowiązań), zapisuje tym samym kodem co bot (`Store.add_feedback`), usuwa plik i odświeża strumień. Wyjątkiem od „tylko GET” jest `POST /api/rate` z nagłówkiem `X-Panel`, typem `application/json` i kontrolą `Origin`. Logi nadal zawierają wyłącznie liczby.
+
+**Skutki.** Treści szkolne i nazwiska przechodzą przez tunel do przeglądarki właściciela, więc dostęp musi chronić uwierzytelnienie tunelu (panel nie ma własnego logowania), a plik `records.jsonl` leży na dysku obok bazy (0600). Oceny z panelu trafiają do pętli zwrotnej (ADR-016) jak oceny z bota. Panel nie cofa zgłoszenia „brak” (zdarzenia są dopisywane). Opóźnienie przyjęcia oceny to najwyżej jeden obrót pętli usługi (ok. minuty).
