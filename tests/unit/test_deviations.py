@@ -232,3 +232,19 @@ def test_dedupe_keeps_first_trip_and_meeting_of_a_day() -> None:
     )
     kept = dedupe(trips)
     assert [f.kind for f in kept] == [Kind.trip, Kind.meeting, Kind.test, Kind.test]
+
+
+def test_entry_finding_quotes_the_entry_text() -> None:
+    e = entry(C.agenda, "1", category="Informacja", detail="Omawiamy  lekturę\nDzieci z Bullerbyn")
+    f = entry_findings({}, [e], [], TODAY)[0]
+    assert f.quote == "Omawiamy lekturę Dzieci z Bullerbyn"
+
+
+def test_entry_quote_is_trimmed_and_does_not_change_the_fingerprint() -> None:
+    long = entry(C.agenda, "1", category="Informacja", detail="x" * 500)
+    short = entry(C.agenda, "1", category="Informacja", detail="")
+    f_long = entry_findings({}, [long], [], TODAY)[0]
+    f_short = entry_findings({}, [short], [], TODAY)[0]
+    assert len(f_long.quote) == 300 and f_long.quote.endswith("…")
+    assert f_short.quote == ""
+    assert f_long.content_fp == f_short.content_fp
