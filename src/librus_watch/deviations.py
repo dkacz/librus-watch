@@ -214,6 +214,15 @@ def _is_cancelled(e: Entry) -> bool:
     return e.source is ContentType.activity and e.category.upper() == "CANCELED"
 
 
+QUOTE_MAX = 300
+
+
+def _entry_quote(e: Entry) -> str:
+    """Treść wpisu jako cytat w powiadomieniu (jedna linia, do `QUOTE_MAX` znaków)."""
+    text = " ".join(e.detail.split())
+    return text if len(text) <= QUOTE_MAX else text[: QUOTE_MAX - 1].rstrip() + "…"
+
+
 def _entry_finding(e: Entry, kind: Kind, what: str, before: str = "") -> Finding:
     """Pozycja z wpisu; tożsamość po typie i kluczu wpisu."""
     return Finding(
@@ -224,6 +233,7 @@ def _entry_finding(e: Entry, kind: Kind, what: str, before: str = "") -> Finding
         origin=Origin.homework if e.source is ContentType.homework else Origin.schedule,
         source_key=f"{e.source.value}:{e.key}",
         at=e.at,
+        quote=_entry_quote(e),
         before=before,
     )
 
