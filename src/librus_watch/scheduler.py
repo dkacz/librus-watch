@@ -136,10 +136,8 @@ def run_once(
             log.warning("dziecko %s: %s", child.id, e)
             continue
         report.reports.append(result)
-        if not dry_run:
+        if not dry_run:  # błąd modułu nie jest porażką dziecka: bez przerwy (ADR-027)
             note_module_errors(store, now, result.failed)
-        if not result.ok:
-            _record_failure(cfg, store, child.id, now, "module")
     if send_instant and not dry_run:
         alert = compose(cfg, store, now, AlertType.instant)
         if alert is not None and deliver(alert, cfg, now.date()):

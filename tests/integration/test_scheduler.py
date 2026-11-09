@@ -3,6 +3,7 @@
 Złe hasło i błędy sieci są tylko na atrapie Librusa (nigdy na prawdziwych kontach).
 """
 
+import json
 import threading
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -98,6 +99,22 @@ def test_transient_errors_back_off_and_stop_for_the_day(
     assert calls["n"] == cfg.fetch.max_failures_per_day  # rosnąca przerwa, potem do jutra
     st = store.fetch_state("ania", NOW.date())
     assert st.blocked_until == datetime(2026, 11, 7, 6, 0)
+    store.close()
+
+
+def test_module_error_does_not_pause_the_child(
+    fake_librus: FakeLibrus, config_file: Path, channels: Channels
+) -> None:
+    fake_librus.overrides = {"Realizations": 500}  # tylko tematy lekcji zwracają 5xx
+    cfg, store = setup(config_file)
+    cycles = cfg.fetch.max_failures_per_day + 1
+    for hour in range(6, 6 + cycles):  # zwykły rytm co godzinę
+        report = scheduler.run_once(cfg, store, NOW.replace(hour=hour), send_instant=False)
+        assert [r.failed for r in report.reports] == [{"Realizations": "TransientError"}]
+    st = store.fetch_state("ania", NOW.date())
+    assert (st.failures, st.next_attempt, st.blocked_until) == (0, None, None)
+    errors = json.loads(store.get_meta(f"module_errors:{NOW.date()}") or "{}")
+    assert errors == {"Realizations": cycles}  # błąd modułu nadal trafia do liczników
     store.close()
 
 
