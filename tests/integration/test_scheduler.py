@@ -163,6 +163,26 @@ def test_service_loop_runs_cycles_and_briefs_then_stops(
     store.close()
 
 
+def test_telegram_error_neither_stops_the_service_nor_repeats_the_brief(
+    fake_librus: FakeLibrus, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apprise = Channels()
+
+    def refused(method: str, payload: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError(f"Telegram {method}: 429")
+
+    monkeypatch.setattr(delivery, "channels", lambda cfg: (apprise, (refused, [111])))
+    base = load_config(config_file)
+    evening = base.alerts.evening.model_copy(update={"mode": "always"})
+    cfg = base.model_copy(update={"alerts": base.alerts.model_copy(update={"evening": evening})})
+    for minute in (5, 6):  # dwa starty usługi tego samego wieczoru
+        stop = threading.Event()
+        monkeypatch.setattr(stop, "wait", lambda _t=None, s=stop: s.set())  # jeden obrót pętli
+        at = datetime(2026, 11, 6, 19, minute)
+        scheduler.run_service(cfg, stop, lambda at=at: at, tick=0, start_telegram=False)
+    assert len([m for m in apprise.messages if m.startswith("Jutro")]) == 1
+
+
 def test_telegram_loop_survives_errors(
     config_file: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
