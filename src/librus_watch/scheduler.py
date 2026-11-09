@@ -74,7 +74,7 @@ class CycleReport:
 
 
 def _record_failure(cfg: Config, store: Store, child: str, now: datetime, error: str) -> None:
-    """Porażka przejściowa: rosnąca przerwa, a po limicie przerwa do jutra."""
+    """Porażka przebiegu dziecka: rosnąca przerwa, a po limicie przerwa do jutra."""
     st = store.fetch_state(child, now.date())
     failures = st.failures + 1
     wait = timedelta(minutes=cfg.fetch.backoff_base_minutes * 2 ** (failures - 1))
@@ -134,6 +134,12 @@ def run_once(
             report.errors[child.id] = "TransientError"
             _record_failure(cfg, store, child.id, now, "TransientError")
             log.warning("dziecko %s: %s", child.id, e)
+            continue
+        except Exception as e:  # granica dziecka: nieprzewidziany błąd nie zatrzymuje przebiegu
+            error = type(e).__name__
+            report.errors[child.id] = error
+            _record_failure(cfg, store, child.id, now, error)
+            log.error("dziecko %s: nieudany cykl (%s)", child.id, error)
             continue
         report.reports.append(result)
         if not dry_run:  # błąd modułu nie jest porażką dziecka: bez przerwy (ADR-027)
